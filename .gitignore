@@ -1,0 +1,102 @@
+# =========================
+# ASP.NET 8 + PNPM .gitignore
+# =========================
+
+# ---------- Build ----------
+bin/
+obj/
+out/
+publish/
+
+# ---------- User-specific ----------
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ---------- Rider / VSCode / VS ----------
+.vs/
+.idea/
+.vscode/
+
+# ---------- Logs ----------
+*.log
+logs/
+
+# ---------- ASP.NET ----------
+appsettings.Development.json
+wwwroot/dist/
+wwwroot/build/
+
+# ---------- EF Core ----------
+*.db
+*.db-shm
+*.db-wal
+
+# ---------- NuGet ----------
+*.nupkg
+packages/
+.nuget/
+
+# ---------- Node / PNPM ----------
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+.npm/
+.yarn/
+
+# ---------- Frontend Build ----------
+dist/
+build/
+coverage/
+.next/
+.nuxt/
+.svelte-kit/
+vite.svg
+
+# ---------- Environment ----------
+.env
+.env.*
+!.env.example
+
+# ---------- OS ----------
+.DS_Store
+Thumbs.db
+
+# ---------- Temp ----------
+tmp/
+temp/
+
+# ---------- Docker ----------
+docker-compose.override.yml
+
+# ---------- Test ----------
+TestResults/
+coverage-results/
+
+# ---------- Generated ----------
+*.generated.cs
+
+# ---------- Secrets ----------
+secrets.json
+
+# ---------- Azure ----------
+.publishsettings
+
+# ---------- Terraform ----------
+.terraform/
+*.tfstate
+*.tfstate.*
+
+# ---------- Optional ----------
+# Uncomment if using SQLite locally
+# *.sqlite
+
+# Uncomment if using local certs
+# *.pfx
+# *.pem
+
+# Uncomment if using Playwright
+# playwright-report/
+# test-results/

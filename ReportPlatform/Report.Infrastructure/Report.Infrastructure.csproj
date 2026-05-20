@@ -1,0 +1,26 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Report.Contracts\Report.Contracts.csproj" />
+		<ProjectReference Include="..\Report.Metadata\Report.Metadata.csproj" />
+		<ProjectReference Include="..\Report.QueryEngine\Report.QueryEngine.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Dapper" Version="2.1.79" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.0" />
+		<PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.1" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Folder Include="Connections\" />
+		<Folder Include="Execution\" />
+	</ItemGroup>
+
+</Project>

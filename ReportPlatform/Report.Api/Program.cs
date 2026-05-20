@@ -1,0 +1,68 @@
+using Report.Api.Middleware;
+using Report.Api.Services;
+using Report.Api.Swagger;
+using Report.Infrastructure.Connections;
+using Report.Infrastructure.Execution;
+using Report.Metadata.Connections;
+using Report.Metadata.Stores;
+using Report.QueryEngine.Binding;
+using Report.QueryEngine.Compilation;
+using Report.QueryEngine.Context;
+using Report.QueryEngine.Execution;
+using Report.QueryEngine.Measures;
+using Report.QueryEngine.Planning;
+using Report.QueryEngine.Relationships;
+using Report.QueryEngine.Services;
+using Report.QueryEngine.Validation;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.RequestBodyFilter<VisualQueryRequestExampleFilter>();
+});
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Frontend", policy =>
+    {
+        policy
+            .WithOrigins("http://localhost:3000")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
+
+builder.Services.AddSingleton<IConnectionRegistry, InMemoryConnectionRegistry>();
+builder.Services.AddSingleton<IDatasetRegistry, InMemoryDatasetRegistry>();
+builder.Services.AddSingleton<IReportRegistry, InMemoryReportRegistry>();
+builder.Services.AddSingleton<ISemanticModelStore, InMemorySemanticModelStore>();
+
+builder.Services.AddScoped<SqlServerSchemaDiscoveryService>();
+builder.Services.AddScoped<SemanticMetadataGenerator>();
+builder.Services.AddScoped<MetadataConsistencyValidator>();
+builder.Services.AddScoped<DatasetRelationshipService>();
+builder.Services.AddScoped<SemanticModelMutationService>();
+builder.Services.AddScoped<SemanticModelBinder>();
+builder.Services.AddScoped<EvaluationContextBuilder>();
+builder.Services.AddScoped<MeasureExpansionEngine>();
+builder.Services.AddScoped<RelationshipTraversalEngine>();
+builder.Services.AddScoped<LogicalPlanBuilder>();
+builder.Services.AddScoped<SqlCompiler>();
+builder.Services.AddScoped<IQueryExecutor, SqlServerQueryExecutor>();
+builder.Services.AddScoped<ReportQueryService>();
+builder.Services.AddScoped<GrainValidationService>();
+builder.Services.AddScoped<DatasetMetadataService>();
+
+var app = builder.Build();
+
+app.UseMiddleware<ApiExceptionHandlingMiddleware>();
+
+app.UseSwagger();
+app.UseSwaggerUI();
+app.UseCors("Frontend");
+
+app.MapControllers();
+
+app.Run();
