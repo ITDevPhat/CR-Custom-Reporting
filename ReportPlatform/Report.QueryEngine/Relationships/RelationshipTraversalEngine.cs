@@ -30,21 +30,46 @@ public sealed class RelationshipTraversalEngine
 
         foreach (var table in requiredTables)
         {
-            var path = FindPath(baseTable, table, activeRelationships);
-            foreach (var rel in path)
+            var candidates = model.Relationships
+                .Where(r => r.IsActive &&
+                    r.Cardinality is "N:1" or "1:1" &&
+                    r.CrossFilterDirection == "single" &&
+                    r.FromTableId == baseTable &&
+                    r.ToTableId == table)
+                .OrderByDescending(r => r.IsPrimary)
+                .ThenByDescending(r => r.Source == "database_fk")
+                .ThenByDescending(r => r.Confidence)
+                .ToList();
+
+            if (candidates.Count == 0)
+            {
+                throw new SemanticQueryValidationException(new Dictionary<string, string[]>
+                {
+                    ["errorCode"] = ["NO_ACTIVE_RELATIONSHIP_PATH"],
+                    ["relationships"] = [$"No active relationship path from {baseTable} to {table}."]
+                });
+            }
+            if (candidates.Count > 1)
             {
                 var key = $"{rel.FromTableId}.{rel.FromColumn}->{rel.ToTableId}.{rel.ToColumn}";
                 if (!seenJoinKeys.Add(key)) continue;
                 joins.Add(new JoinDef
                 {
-                    RelationshipId = rel.RelationshipId,
-                    FromTableId = rel.FromTableId,
-                    ToTableId = rel.ToTableId,
-                    JoinType = rel.JoinType,
-                    FromColumn = rel.FromColumn,
-                    ToColumn = rel.ToColumn
+                    ["errorCode"] = ["AMBIGUOUS_RELATIONSHIP_PATH"],
+                    ["message"] = [$"Multiple active relationships exist between {baseTable} and {table}. Make exactly one relationship active."],
+                    ["details"] = candidates.Select(c => $"{c.FromTableId}.{c.FromColumn} -> {c.ToTableId}.{c.ToColumn}").ToArray()
                 });
             }
+            var rel = candidates[0];
+
+            joins.Add(new JoinDef
+            {
+                FromTableId = rel.FromTableId,
+                ToTableId = rel.ToTableId,
+                JoinType = rel.JoinType,
+                FromColumn = rel.FromColumn,
+                ToColumn = rel.ToColumn
+            });
         }
 
         return new JoinPlan { BaseTableId = baseTable, Joins = joins };
