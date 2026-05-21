@@ -810,7 +810,7 @@ export function DerivedFieldExpressionBuilder({
         <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <FunctionSquare className="h-5 w-5 text-pink-600" />
-            Create Derived Field
+            Create Calculated Field
           </DialogTitle>
           <p className="text-sm text-muted-foreground">
             Drag fields, measures, and operators to build an expression.
@@ -825,7 +825,7 @@ export function DerivedFieldExpressionBuilder({
         {/* Name Input */}
         <div className="px-6 py-3 border-b flex-shrink-0">
           <Label htmlFor="derivedName" className="text-sm font-medium">
-            Derived Field Name
+            Calculated Field Name
           </Label>
           <Input
             id="derivedName"
@@ -955,7 +955,7 @@ export function DerivedFieldExpressionBuilder({
             onClick={handleSave}
             disabled={!name.trim() || tokens.length === 0 || hasAggregateExpression}
           >
-            Save Derived Field
+            {hasAggregateExpression ? 'Save Calculated Measure' : 'Save Calculated Column'}
           </Button>
         </div>
       </DialogContent>

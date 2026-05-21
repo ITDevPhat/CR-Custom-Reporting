@@ -17,7 +17,7 @@ export type MetricRequest = {
   displayName: string
   formula: string
   baseTableId: string
-  aggregationBehavior: 'additive' | 'semi_additive' | 'non_additive' | 'ratio'
+  aggregationBehavior: 'additive' | 'semi_additive' | 'non_additive' | 'ratio' | 'calculated'
   dataType: 'decimal' | 'integer' | 'percentage' | 'currency'
   format: 'general' | 'currency' | 'percentage' | 'integer' | 'decimal'
   isHidden: boolean
