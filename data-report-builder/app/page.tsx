@@ -400,7 +400,7 @@ export default function ReportBuilderPage() {
           displayName: field.name,
           formula,
           baseTableId: baseField?.tableId ?? fallbackBaseTable ?? '',
-          aggregationBehavior: 'calculated' as unknown as MetricRequest['aggregationBehavior'],
+          aggregationBehavior: 'additive',
           dataType: 'decimal',
           format: 'decimal',
           isHidden: false,

@@ -774,6 +774,11 @@ export function DerivedFieldExpressionBuilder({
       toast.error('Please add at least one token to the expression')
       return
     }
+    if (hasAggregateExpression) {
+      toast.error('This expression uses measures. Save it as a Measure, not a Derived Field.')
+      return
+    }
+
     const newDerived: CalculatedField = {
       id: `derived-${Date.now()}`,
       name: name.trim(),
@@ -788,8 +793,8 @@ export function DerivedFieldExpressionBuilder({
     setTokens([])
     setSearchQuery('')
     onOpenChange(false)
-    toast.success(`Calculated field "${name}" created`)
-  }, [name, tokens, expressionString, onSave, onOpenChange])
+    toast.success(`Derived field "${name}" created`)
+  }, [name, tokens, expressionString, hasAggregateExpression, onSave, onOpenChange])
 
   const handleClose = useCallback(() => {
     setName('')
@@ -812,12 +817,7 @@ export function DerivedFieldExpressionBuilder({
           </p>
           {hasAggregateExpression && (
             <p className="text-sm text-amber-600">
-              Aggregate calculated measure
-            </p>
-          )}
-          {!hasAggregateExpression && (
-            <p className="text-sm text-emerald-600">
-              Row-level calculated column
+              This expression uses measures/aggregates. Save it as a Measure, not a Derived Field.
             </p>
           )}
         </DialogHeader>
@@ -953,7 +953,7 @@ export function DerivedFieldExpressionBuilder({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={!name.trim() || tokens.length === 0}
+            disabled={!name.trim() || tokens.length === 0 || hasAggregateExpression}
           >
             {hasAggregateExpression ? 'Save Calculated Measure' : 'Save Calculated Column'}
           </Button>

@@ -195,13 +195,13 @@ public sealed partial class SemanticModelMutationService
         {
             yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived field display name is required." };
         }
-        if (RawSqlTokens().IsMatch(request.Expression))
-        {
-            yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived expression contains unsupported SQL tokens." };
-        }
         if (AggregateRefs().IsMatch(request.Expression) || MetricRef().IsMatch(request.Expression))
         {
             yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived fields cannot reference measures or aggregate functions. Create a measure instead." };
+        }
+        if (RawSqlTokens().IsMatch(request.Expression))
+        {
+            yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived expression contains unsupported SQL tokens." };
         }
         var refs = FieldRefs().Matches(request.Expression).Select(m => m.Groups[1].Value).ToList();
         if (refs.Count == 0) yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived expression must reference at least one field." };
