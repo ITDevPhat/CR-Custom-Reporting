@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Report.Contracts.Requests;
+using Report.Metadata.Models;
 using Report.QueryEngine.Validation;
 using static Report.QueryEngine.Tests.QueryEngineTestHarness;
 
@@ -324,6 +325,36 @@ public sealed class SqlGenerationTests
 
         act.Should().Throw<SemanticQueryValidationException>()
             .Where(ex => ex.Errors.Values.SelectMany(errors => errors).Any(error => error.Contains("No relationship", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void MultipleActiveRelationshipsSamePair_ShouldFailAmbiguous()
+    {
+        var harness = new QueryEngineTestHarness(model =>
+        {
+            model.Relationships.Add(new SemanticRelationship
+            {
+                DatasetId = "sales",
+                RelationshipId = "rel_date_ship",
+                FromTableId = "FactSales",
+                FromColumn = "ShipDateKey",
+                ToTableId = "DimDate",
+                ToColumn = "DateKey",
+                Cardinality = "N:1",
+                JoinType = "INNER",
+                CrossFilterDirection = "single",
+                IsActive = true,
+                IsPrimary = true,
+                Source = "database_fk",
+                Confidence = 1.0m,
+                Status = "active"
+            });
+            return model;
+        });
+
+        var act = () => harness.Compile(Request(rows: ["dimdate.yearnumber"], values: ["metric.total_sales"]));
+        act.Should().Throw<SemanticQueryValidationException>()
+            .Where(ex => ex.Errors.TryGetValue("errorCode", out var code) && code.Contains("AMBIGUOUS_RELATIONSHIP_PATH"));
     }
 
     [Fact]

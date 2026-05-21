@@ -37,23 +37,24 @@ public sealed class RelationshipTraversalEngine
                 .ThenByDescending(r => r.Confidence)
                 .ToList();
 
-            var rel = candidates.FirstOrDefault()
-                ?? throw new SemanticQueryValidationException(new Dictionary<string, string[]>
+            if (candidates.Count == 0)
+            {
+                throw new SemanticQueryValidationException(new Dictionary<string, string[]>
                 {
-                    ["relationships"] = [$"No relationship path from {baseTable} to {table}."]
+                    ["errorCode"] = ["NO_ACTIVE_RELATIONSHIP_PATH"],
+                    ["relationships"] = [$"No active relationship path from {baseTable} to {table}."]
                 });
-
-            if (candidates.Count > 1 &&
-                candidates[0].IsPrimary == candidates[1].IsPrimary &&
-                candidates[0].Source == candidates[1].Source &&
-                candidates[0].Confidence == candidates[1].Confidence)
+            }
+            if (candidates.Count > 1)
             {
                 throw new SemanticQueryValidationException(new Dictionary<string, string[]>
                 {
                     ["errorCode"] = ["AMBIGUOUS_RELATIONSHIP_PATH"],
-                    ["relationships"] = [$"Multiple active relationship paths found between {baseTable} and {table}."]
+                    ["message"] = [$"Multiple active relationships exist between {baseTable} and {table}. Make exactly one relationship active."],
+                    ["details"] = candidates.Select(c => $"{c.FromTableId}.{c.FromColumn} -> {c.ToTableId}.{c.ToColumn}").ToArray()
                 });
             }
+            var rel = candidates[0];
 
             joins.Add(new JoinDef
             {
