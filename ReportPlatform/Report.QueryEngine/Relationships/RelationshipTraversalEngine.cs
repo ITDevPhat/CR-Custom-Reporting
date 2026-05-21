@@ -9,6 +9,7 @@ public sealed class RelationshipTraversalEngine
 {
     public JoinPlan Build(EvaluationContext context, List<ExpandedMeasure> measures, SemanticModel model)
     {
+        var activeRelationships = GetTraversableRelationships(model);
         var requestedTables = context.GroupFields
             .Select(f => f.TableId)
             .Concat(measures.Select(m => m.BaseTableId))
@@ -16,7 +17,7 @@ public sealed class RelationshipTraversalEngine
             .Distinct()
             .ToList();
 
-        var baseTable = ChooseBaseTable(context, measures, model, requestedTables);
+        var baseTable = ChooseBaseTable(context, measures, activeRelationships, requestedTables);
 
         var requiredTables = requestedTables
             .Where(t => t != baseTable)
@@ -27,46 +28,22 @@ public sealed class RelationshipTraversalEngine
 
         foreach (var table in requiredTables)
         {
-            var candidates = model.Relationships
-                .Where(r => r.IsActive &&
-                    r.Cardinality is "N:1" or "1:1" &&
-                    r.CrossFilterDirection == "single" &&
-                    r.FromTableId == baseTable &&
-                    r.ToTableId == table)
-                .OrderByDescending(r => r.IsPrimary)
-                .ThenByDescending(r => r.Source == "database_fk")
-                .ThenByDescending(r => r.Confidence)
-                .ToList();
-
-            if (candidates.Count == 0)
+            var path = FindPath(baseTable, table, activeRelationships);
+            foreach (var rel in path)
             {
-                throw new SemanticQueryValidationException(new Dictionary<string, string[]>
+                var key = $"{rel.FromTableId}.{rel.FromColumn}->{rel.ToTableId}.{rel.ToColumn}";
+                if (!seenJoinKeys.Add(key)) continue;
+
+                joins.Add(new JoinDef
                 {
-                    ["errorCode"] = ["NO_ACTIVE_RELATIONSHIP_PATH"],
-                    ["relationships"] = [$"No active relationship path from {baseTable} to {table}."]
+                    RelationshipId = rel.RelationshipId,
+                    FromTableId = rel.FromTableId,
+                    ToTableId = rel.ToTableId,
+                    JoinType = rel.JoinType,
+                    FromColumn = rel.FromColumn,
+                    ToColumn = rel.ToColumn
                 });
             }
-            if (candidates.Count > 1)
-            {
-                throw new SemanticQueryValidationException(new Dictionary<string, string[]>
-                {
-                    ["errorCode"] = ["AMBIGUOUS_RELATIONSHIP_PATH"],
-                    ["message"] = [$"Multiple active relationships exist between {baseTable} and {table}. Make exactly one relationship active."],
-                    ["details"] = candidates.Select(c => $"{c.FromTableId}.{c.FromColumn} -> {c.ToTableId}.{c.ToColumn}").ToArray()
-                });
-            }
-            var rel = candidates[0];
-            var key = $"{rel.FromTableId}.{rel.FromColumn}->{rel.ToTableId}.{rel.ToColumn}";
-            if (!seenJoinKeys.Add(key)) continue;
-
-            joins.Add(new JoinDef
-            {
-                FromTableId = rel.FromTableId,
-                ToTableId = rel.ToTableId,
-                JoinType = rel.JoinType,
-                FromColumn = rel.FromColumn,
-                ToColumn = rel.ToColumn
-            });
         }
 
         return new JoinPlan { BaseTableId = baseTable, Joins = joins };
@@ -75,7 +52,7 @@ public sealed class RelationshipTraversalEngine
     private static string ChooseBaseTable(
         EvaluationContext context,
         List<ExpandedMeasure> measures,
-        SemanticModel model,
+        List<SemanticRelationship> activeRelationships,
         List<string> requestedTables)
     {
         var measureBaseTable = measures.FirstOrDefault()?.BaseTableId;
@@ -93,20 +70,18 @@ public sealed class RelationshipTraversalEngine
                 });
         }
 
-        var activeRelationships = model.Relationships
-            .Where(r => r.IsActive && r.Cardinality is "N:1" or "1:1" && r.CrossFilterDirection == "single")
+        var candidateTables = activeRelationships
+            .SelectMany(r => new[] { r.FromTableId, r.ToTableId })
+            .Concat(requestedTables)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var bridgeTable = activeRelationships
-            .Where(r => r.IsPrimary)
-            .Select(r => r.FromTableId)
-            .Distinct()
-            .FirstOrDefault(candidate => requestedTables.All(table =>
-                table == candidate ||
-                activeRelationships.Any(r =>
-                    r.IsPrimary &&
-                    r.FromTableId == candidate &&
-                    r.ToTableId == table)));
+        var bridgeTable = candidateTables
+            .Where(candidate => requestedTables.All(table => table == candidate || HasPath(candidate, table, activeRelationships)))
+            .OrderByDescending(candidate => candidate.StartsWith("Fact", StringComparison.OrdinalIgnoreCase))
+            .ThenBy(candidate => requestedTables.Contains(candidate, StringComparer.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(candidate => candidate, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
 
         if (!string.IsNullOrWhiteSpace(bridgeTable))
         {
@@ -114,6 +89,53 @@ public sealed class RelationshipTraversalEngine
         }
 
         return context.GroupFields.First().TableId;
+    }
+
+    private static List<SemanticRelationship> GetTraversableRelationships(SemanticModel model)
+    {
+        var edges = new List<SemanticRelationship>();
+        foreach (var relationship in model.Relationships
+            .Where(r => r.IsActive && r.Cardinality is "N:1" or "1:1"))
+        {
+            edges.Add(relationship);
+            if (relationship.CrossFilterDirection.Equals("both", StringComparison.OrdinalIgnoreCase) ||
+                relationship.Cardinality.Equals("1:1", StringComparison.OrdinalIgnoreCase))
+            {
+                edges.Add(new SemanticRelationship
+                {
+                    RelationshipId = relationship.RelationshipId,
+                    DatasetId = relationship.DatasetId,
+                    FromTableId = relationship.ToTableId,
+                    FromColumn = relationship.ToColumn,
+                    ToTableId = relationship.FromTableId,
+                    ToColumn = relationship.FromColumn,
+                    JoinType = relationship.JoinType,
+                    Cardinality = relationship.Cardinality,
+                    CrossFilterDirection = relationship.CrossFilterDirection,
+                    IsActive = relationship.IsActive,
+                    IsPrimary = relationship.IsPrimary,
+                    Source = relationship.Source,
+                    Confidence = relationship.Confidence,
+                    Status = relationship.Status,
+                    Warning = relationship.Warning
+                });
+            }
+        }
+
+        return edges;
+    }
+
+    private static bool HasPath(string baseTable, string targetTable, List<SemanticRelationship> relationships)
+    {
+        try
+        {
+            _ = FindPath(baseTable, targetTable, relationships);
+            return true;
+        }
+        catch (SemanticQueryValidationException)
+        {
+            return false;
+        }
     }
 
     private static List<SemanticRelationship> FindPath(string baseTable, string targetTable, List<SemanticRelationship> relationships)
@@ -157,8 +179,8 @@ public sealed class RelationshipTraversalEngine
         {
             throw new SemanticQueryValidationException(new Dictionary<string, string[]>
             {
-                ["errorCode"] = ["NO_RELATIONSHIP_PATH"],
-                ["relationships"] = [$"No relationship path from {baseTable} to {targetTable}."]
+                ["errorCode"] = ["NO_ACTIVE_RELATIONSHIP_PATH"],
+                ["relationships"] = [$"No active relationship path from {baseTable} to {targetTable}."]
             });
         }
 

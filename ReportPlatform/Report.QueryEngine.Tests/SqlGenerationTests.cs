@@ -212,6 +212,73 @@ public sealed class SqlGenerationTests
     }
 
     [Fact]
+    public void SnowflakeDimensionMetric_ShouldJoinThroughIntermediateDimension()
+    {
+        var harness = new QueryEngineTestHarness(model =>
+        {
+            model.Tables.Add(new SemanticTable
+            {
+                TableId = "DimCategory",
+                DisplayName = "Category",
+                TableType = "dimension",
+                Grain = "category",
+                PhysicalSchema = "dbo",
+                PhysicalTable = "DimCategory"
+            });
+            model.Fields.Add(new SemanticField
+            {
+                DatasetId = model.DatasetId,
+                FieldId = "dimcategory.categoryname",
+                TableId = "DimCategory",
+                PhysicalTable = "DimCategory",
+                PhysicalColumn = "CategoryName",
+                DisplayName = "Category Name",
+                DataType = "nvarchar",
+                Role = "dimension",
+                Grain = "category",
+                SemanticType = "category",
+                IsDraggable = true
+            });
+            model.Relationships.Add(new SemanticRelationship
+            {
+                DatasetId = model.DatasetId,
+                RelationshipId = "rel_product_category",
+                FromTableId = "DimProduct",
+                FromColumn = "CategoryKey",
+                ToTableId = "DimCategory",
+                ToColumn = "CategoryKey",
+                JoinType = "INNER",
+                Cardinality = "N:1",
+                CrossFilterDirection = "single",
+                IsActive = true,
+                IsPrimary = true,
+                Source = "database_fk",
+                Confidence = 1.0m,
+                Status = "active"
+            });
+            return model;
+        });
+
+        var result = harness.Compile(Request(rows: ["dimcategory.categoryname"], values: ["metric.total_sales"]));
+
+        AssertSqlContains(result.Sql.Sql, "INNER JOIN DimProduct p ON f.ProductKey = p.ProductKey");
+        AssertSqlContains(result.Sql.Sql, "INNER JOIN DimCategory c ON p.CategoryKey = c.CategoryKey");
+        AssertSqlContains(result.Sql.Sql, "c.CategoryName AS CategoryName");
+        AssertSqlContains(result.Sql.Sql, "GROUP BY c.CategoryName");
+    }
+
+    [Fact]
+    public void DimensionOnlyAcrossStarDimensions_ShouldChooseFactBridge()
+    {
+        var result = _harness.Compile(Request(rows: ["dimcustomer.customername", "dimproduct.category"]));
+
+        result.LogicalPlan.BaseTableId.Should().Be("FactSales");
+        AssertSqlContains(result.Sql.Sql, "INNER JOIN DimCustomer c ON f.CustomerKey = c.CustomerKey");
+        AssertSqlContains(result.Sql.Sql, "INNER JOIN DimProduct p ON f.ProductKey = p.ProductKey");
+        AssertSqlDoesNotContain(result.Sql.Sql, "GROUP BY");
+    }
+
+    [Fact]
     public void WhereFilterDimension_ShouldJoinFilterTableAndParameterizeWhere()
     {
         var result = _harness.Compile(Request(
