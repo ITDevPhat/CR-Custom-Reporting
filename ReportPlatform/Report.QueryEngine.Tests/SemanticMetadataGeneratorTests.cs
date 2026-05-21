@@ -55,7 +55,7 @@ public sealed class SemanticMetadataGeneratorTests
     }
 
     [Fact]
-    public void FactSalesAdditiveNumericColumns_ShouldBecomeMeasureCandidatesWithSumMetrics()
+    public void FactSalesAdditiveNumericColumns_ShouldBecomeMeasureCandidatesWithAllAggregateMetrics()
     {
         var model = GenerateSuperstoreLikeModel();
 
@@ -65,16 +65,19 @@ public sealed class SemanticMetadataGeneratorTests
             field.Role.Should().Be("measure_candidate");
             field.DefaultAggregation.Should().Be("SUM");
 
-            var metric = model.Metrics.Should().ContainSingle(m =>
-                m.MetricId == $"metric.sum_factsales_{Normalize(column)}").Subject;
-            metric.Formula.Should().Be($"SUM([{field.FieldId}])");
-            metric.IsDraggable.Should().BeTrue();
-            metric.IsHidden.Should().BeFalse();
+            foreach (var aggregation in new[] { "SUM", "AVG", "MIN", "MAX", "COUNT", "COUNT_DISTINCT" })
+            {
+                var metric = model.Metrics.Should().ContainSingle(m =>
+                    m.MetricId == $"metric.{aggregation.ToLowerInvariant()}_factsales_{Normalize(column)}").Subject;
+                metric.Formula.Should().Be($"{aggregation}([{field.FieldId}])");
+                metric.IsDraggable.Should().BeTrue();
+                metric.IsHidden.Should().BeFalse();
+            }
         }
     }
 
     [Fact]
-    public void FactSalesDiscount_ShouldBecomeMeasureCandidateWithAverageMetric()
+    public void FactSalesDiscount_ShouldBecomeMeasureCandidateWithAverageAndCountMetrics()
     {
         var model = GenerateSuperstoreLikeModel();
 
@@ -82,9 +85,12 @@ public sealed class SemanticMetadataGeneratorTests
         field.Role.Should().Be("measure_candidate");
         field.DefaultAggregation.Should().Be("AVG");
 
-        var metric = model.Metrics.Should().ContainSingle(m => m.MetricId == "metric.avg_factsales_discount").Subject;
-        metric.DisplayName.Should().Be("Average Discount");
-        metric.Formula.Should().Be($"AVG([{field.FieldId}])");
+        var avgMetric = model.Metrics.Should().ContainSingle(m => m.MetricId == "metric.avg_factsales_discount").Subject;
+        avgMetric.DisplayName.Should().Be("Average Discount");
+        avgMetric.Formula.Should().Be($"AVG([{field.FieldId}])");
+
+        var distinctMetric = model.Metrics.Should().ContainSingle(m => m.MetricId == "metric.count_distinct_factsales_discount").Subject;
+        distinctMetric.DisplayName.Should().Be("Distinct Discount Count");
     }
 
     [Fact]
