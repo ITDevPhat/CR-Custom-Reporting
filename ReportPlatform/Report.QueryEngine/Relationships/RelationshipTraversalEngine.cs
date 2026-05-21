@@ -30,21 +30,46 @@ public sealed class RelationshipTraversalEngine
 
         foreach (var table in requiredTables)
         {
-            var path = FindRelationshipPath(baseTable, table, activeRelationships);
-            foreach (var rel in path)
+            var candidates = model.Relationships
+                .Where(r => r.IsActive &&
+                    r.Cardinality is "N:1" or "1:1" &&
+                    r.CrossFilterDirection == "single" &&
+                    r.FromTableId == baseTable &&
+                    r.ToTableId == table)
+                .OrderByDescending(r => r.IsPrimary)
+                .ThenByDescending(r => r.Source == "database_fk")
+                .ThenByDescending(r => r.Confidence)
+                .ToList();
+
+            if (candidates.Count == 0)
+            {
+                throw new SemanticQueryValidationException(new Dictionary<string, string[]>
+                {
+                    ["errorCode"] = ["NO_ACTIVE_RELATIONSHIP_PATH"],
+                    ["relationships"] = [$"No active relationship path from {baseTable} to {table}."]
+                });
+            }
+            if (candidates.Count > 1)
             {
                 var key = $"{rel.FromTableId}.{rel.FromColumn}->{rel.ToTableId}.{rel.ToColumn}";
                 if (!seenJoinKeys.Add(key)) continue;
                 joins.Add(new JoinDef
                 {
-                    RelationshipId = rel.RelationshipId,
-                    FromTableId = rel.FromTableId,
-                    ToTableId = rel.ToTableId,
-                    JoinType = rel.JoinType,
-                    FromColumn = rel.FromColumn,
-                    ToColumn = rel.ToColumn
+                    ["errorCode"] = ["AMBIGUOUS_RELATIONSHIP_PATH"],
+                    ["message"] = [$"Multiple active relationships exist between {baseTable} and {table}. Make exactly one relationship active."],
+                    ["details"] = candidates.Select(c => $"{c.FromTableId}.{c.FromColumn} -> {c.ToTableId}.{c.ToColumn}").ToArray()
                 });
             }
+            var rel = candidates[0];
+
+            joins.Add(new JoinDef
+            {
+                FromTableId = rel.FromTableId,
+                ToTableId = rel.ToTableId,
+                JoinType = rel.JoinType,
+                FromColumn = rel.FromColumn,
+                ToColumn = rel.ToColumn
+            });
         }
 
         return new JoinPlan { BaseTableId = baseTable, Joins = joins };
@@ -94,12 +119,12 @@ public sealed class RelationshipTraversalEngine
         return context.GroupFields.First().TableId;
     }
 
-    private static List<SemanticRelationship> FindRelationshipPath(string baseTable, string targetTable, List<SemanticRelationship> relationships)
+    private static List<SemanticRelationship> FindPath(string baseTable, string targetTable, List<SemanticRelationship> relationships)
     {
         if (baseTable == targetTable) return [];
         var queue = new Queue<(string table, List<SemanticRelationship> path)>();
-        var visitedDepth = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [baseTable] = 0 };
-        var shortestPaths = new List<List<SemanticRelationship>>();
+        var distance = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [baseTable] = 0 };
+        var bestPaths = new List<List<SemanticRelationship>>();
         int? shortest = null;
 
         queue.Enqueue((baseTable, []));
@@ -111,7 +136,7 @@ public sealed class RelationshipTraversalEngine
             if (table == targetTable)
             {
                 shortest ??= path.Count;
-                shortestPaths.Add(path);
+                bestPaths.Add(path);
                 continue;
             }
 
@@ -124,14 +149,14 @@ public sealed class RelationshipTraversalEngine
             foreach (var rel in outgoing)
             {
                 var nextLen = path.Count + 1;
-                if (visitedDepth.TryGetValue(rel.ToTableId, out var existingDepth) && existingDepth < nextLen) continue;
-                visitedDepth[rel.ToTableId] = nextLen;
+                if (distance.TryGetValue(rel.ToTableId, out var existing) && existing < nextLen) continue;
+                distance[rel.ToTableId] = nextLen;
                 var next = new List<SemanticRelationship>(path) { rel };
                 queue.Enqueue((rel.ToTableId, next));
             }
         }
 
-        if (shortestPaths.Count == 0)
+        if (bestPaths.Count == 0)
         {
             throw new SemanticQueryValidationException(new Dictionary<string, string[]>
             {
@@ -140,24 +165,24 @@ public sealed class RelationshipTraversalEngine
             });
         }
 
-        var ranked = shortestPaths
+        var ranked = bestPaths
             .OrderByDescending(PathPrimaryScore)
             .ThenByDescending(PathDatabaseFkScore)
             .ThenByDescending(PathConfidenceScore)
             .ThenBy(p => p.Count)
             .ToList();
 
-        if (ranked.Count > 1 && ranked[0].Count == ranked[1].Count)
+        if (ranked.Count > 1 &&
+            PathPrimaryScore(ranked[0]) == PathPrimaryScore(ranked[1]) &&
+            PathDatabaseFkScore(ranked[0]) == PathDatabaseFkScore(ranked[1]) &&
+            Math.Abs(PathConfidenceScore(ranked[0]) - PathConfidenceScore(ranked[1])) < 0.000001m &&
+            ranked[0].Count == ranked[1].Count)
         {
             throw new SemanticQueryValidationException(new Dictionary<string, string[]>
             {
                 ["errorCode"] = ["AMBIGUOUS_RELATIONSHIP_PATH"],
-                ["message"] = [$"Multiple active relationship paths exist between {baseTable} and {targetTable}. Make exactly one path active."],
-                ["details"] = ranked
-                    .Where(path => path.Count == ranked[0].Count)
-                    .Select(path => string.Join(" | ", path.Select(r => $"{r.FromTableId}.{r.FromColumn} -> {r.ToTableId}.{r.ToColumn}")))
-                    .Take(5)
-                    .ToArray()
+                ["message"] = [$"Multiple equally ranked relationship paths exist between {baseTable} and {targetTable}."],
+                ["details"] = ranked.Take(2).Select(path => string.Join(" | ", path.Select(r => $"{r.FromTableId}.{r.FromColumn} -> {r.ToTableId}.{r.ToColumn}"))).ToArray()
             });
         }
 
