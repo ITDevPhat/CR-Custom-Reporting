@@ -197,7 +197,7 @@ public sealed partial class SemanticModelMutationService
         }
         if (AggregateRefs().IsMatch(request.Expression) || MetricRef().IsMatch(request.Expression))
         {
-            yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived fields cannot reference measures or aggregate functions. Create a measure instead." };
+            yield return new ValidationMessage { Code = "WRONG_CALCULATED_OBJECT_KIND", Message = "This expression is aggregate-level. Save it as a calculated measure." };
         }
         if (RawSqlTokens().IsMatch(request.Expression))
         {

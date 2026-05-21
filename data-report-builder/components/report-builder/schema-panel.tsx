@@ -777,7 +777,7 @@ export function SchemaPanel({
         onSave={onAddCalculatedField}
         existingMeasures={measures}
         existingDerivedFields={derived}
-        metadata={metadataTables.length ? { datasetId: '', displayName: '', connectionId: '', tables: metadataTables, metrics: metadataMetrics, relationships: [] } : null}
+        metadata={semanticMetadata ?? (metadataTables.length ? { datasetId: '', displayName: '', connectionId: '', tables: metadataTables, metrics: metadataMetrics, relationships: [] } : null)}
       />
     </div>
   )

@@ -55,9 +55,11 @@ import {
   createDerivedField,
   createMetric,
   saveReportDefinition,
+  validateExpression,
   validateDerivedField,
   validateMetric,
   type DerivedFieldRequest,
+  type ExpressionValidationResult,
   type MetricRequest,
 } from '@/lib/semantic-management-api'
 
@@ -351,6 +353,8 @@ export default function ReportBuilderPage() {
       dataType: 'decimal',
       kind: calcField.type,
       calculatedField: calcField,
+      role: calcField.type === 'measure' ? 'metric' : 'derived_field',
+      placement: calcField.type === 'measure' ? 'values' : 'rows',
     }
 
     setSelectedFields(prev => [...prev, newField])
@@ -361,10 +365,6 @@ export default function ReportBuilderPage() {
     try {
       if (!datasetId) throw new Error('Connect a source before creating semantic fields.')
       const expression = field.expression?.trim() ?? ''
-      const isCalculatedMeasureExpression = field.type === 'derived' && (
-        /\b(SUM|AVG|COUNT|COUNT_DISTINCT|MIN|MAX)\s*\(/i.test(expression) ||
-        /\[\s*metric\./i.test(expression)
-      )
 
       if (field.type === 'measure') {
         const source = findMetadataField(field.sourceTable, field.sourceColumn)
@@ -387,42 +387,42 @@ export default function ReportBuilderPage() {
         return
       }
 
-      if (field.type === 'derived' && isCalculatedMeasureExpression) {
+      if (field.type === 'derived') {
         const formula = expression
         if (!formula) throw new Error('Calculated measure expression is required.')
-        const fieldRefs = Array.from(formula.matchAll(/\[([^\]]+)\]/g)).map((m) => m[1])
-        const nonMetricRef = fieldRefs.find((ref) => !ref.toLowerCase().startsWith('metric.'))
-        const baseField = nonMetricRef
-          ? metadata?.tables.flatMap((table) => table.fields).find((f) => f.fieldId.toLowerCase() === nonMetricRef.toLowerCase())
+        const validationResult: ExpressionValidationResult = await validateExpression(datasetId, { expression: formula, targetKind: 'auto' })
+        if (!validationResult.valid) throw new Error(validationResult.errors.join(' '))
+        const baseFieldRef = validationResult.dependencies.find((dep) => !dep.toLowerCase().startsWith('metric.'))
+        const baseField = baseFieldRef
+          ? metadata?.tables.flatMap((table) => table.fields).find((f) => f.fieldId.toLowerCase() === baseFieldRef.toLowerCase())
           : undefined
-        const fallbackBaseTable = metadata?.tables[0]?.tableId
-        const body: MetricRequest = {
-          displayName: field.name,
-          formula,
-          baseTableId: baseField?.tableId ?? fallbackBaseTable ?? '',
-          aggregationBehavior: 'additive',
-          dataType: 'decimal',
-          format: 'decimal',
-          isHidden: false,
-          isDraggable: true,
-        }
-        if (!body.baseTableId) throw new Error('Unable to infer base table for calculated measure.')
-        const validation = await validateMetric(datasetId, body)
-        if (!validation.valid) throw new Error(validation.errors.join(' '))
-        await createMetric(datasetId, body)
-        await refreshMetadata()
-        toast.success(`Calculated measure "${field.name}" created`)
-        return
-      }
+        const fallbackBaseTable = metadata?.tables[0]?.tableId ?? ''
 
-      if (field.type === 'derived') {
-        const baseTable = metadata?.tables[0]
-        const firstField = baseTable?.fields[0]
-        if (!baseTable || !firstField) throw new Error('No base field is available for the derived expression.')
+        if (validationResult.detectedKind === 'calculated_measure') {
+          const body: MetricRequest = {
+            displayName: field.name,
+            formula,
+            baseTableId: baseField?.tableId ?? fallbackBaseTable,
+            aggregationBehavior: 'calculated',
+            dataType: 'decimal',
+            format: 'percentage',
+            isHidden: false,
+            isDraggable: true,
+          }
+          if (!body.baseTableId) throw new Error('Unable to infer base table for calculated measure.')
+          const validation = await validateMetric(datasetId, body)
+          if (!validation.valid) throw new Error(validation.errors.join(' '))
+          await createMetric(datasetId, body)
+          await refreshMetadata()
+          toast.success(`Calculated measure "${field.name}" created`)
+          return
+        }
+
+        if (!baseField?.tableId) throw new Error('Unable to infer base table for calculated column.')
         const body: DerivedFieldRequest = {
           displayName: field.name,
-          baseTableId: baseTable.tableId,
-          expression: field.expression?.includes('[') ? field.expression : `[${firstField.fieldId}]`,
+          baseTableId: baseField.tableId,
+          expression: formula,
           dataType: 'nvarchar',
           semanticType: 'category',
           format: 'general',

@@ -41,6 +41,20 @@ export type ValidationResponse = {
   warnings: string[]
 }
 
+export type ExpressionValidationRequest = {
+  expression: string
+  targetKind: 'auto' | 'calculated_column' | 'calculated_measure'
+}
+
+export type ExpressionValidationResult = {
+  valid: boolean
+  detectedKind: 'calculated_column' | 'calculated_measure'
+  returnType: string
+  dependencies: string[]
+  compiledSqlPreview: string
+  errors: string[]
+}
+
 export function updateField(datasetId: string, fieldId: string, body: Partial<MetadataField>) {
   return request<MetadataField>(`/api/datasets/${encodeURIComponent(datasetId)}/fields/${encodeURIComponent(fieldId)}`, {
     method: 'PUT',
@@ -71,6 +85,13 @@ export function validateDerivedField(datasetId: string, body: DerivedFieldReques
 
 export function createDerivedField(datasetId: string, body: DerivedFieldRequest) {
   return request<MetadataField>(`/api/datasets/${encodeURIComponent(datasetId)}/derived-fields`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function validateExpression(datasetId: string, body: ExpressionValidationRequest) {
+  return request<ExpressionValidationResult>(`/api/datasets/${encodeURIComponent(datasetId)}/expressions/validate`, {
     method: 'POST',
     body: JSON.stringify(body),
   })

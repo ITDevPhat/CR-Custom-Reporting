@@ -58,15 +58,29 @@ import {
 } from '@/lib/schema-data'
 import { type DatasetMetadataResponse } from '@/lib/report-metadata-api'
 import { getFieldsForDerivedExpression } from '@/lib/metadata-selectors'
+import { validateExpression } from '@/lib/semantic-management-api'
 
 // Token types for the expression builder
-export type ExpressionTokenType = 'column' | 'metric' | 'measure' | 'derived' | 'operator' | 'constant'
-
-export interface ExpressionToken {
+export type ExpressionTokenType = 'field' | 'metric' | 'operator' | 'number' | 'string' | 'paren' | 'function' | 'column' | 'measure' | 'derived' | 'constant'
+type ArithmeticOperator = '+' | '-' | '*' | '/' | '>' | '<' | '>=' | '<=' | '=' | 'AND' | 'OR'
+type ExpressionToken = {
   id: string
-  type: ExpressionTokenType
-  value: string
-  displayLabel: string
+  kind?: 'field' | 'metric' | 'operator' | 'number' | 'string' | 'paren' | 'function'
+  fieldId?: string
+  metricId?: string
+  displayName?: string
+  tableId?: string
+  dataType?: string
+  semanticType?: string
+  role?: string
+  formula?: string
+  baseTableId?: string
+  aggregationBehavior?: string
+  operator?: ArithmeticOperator
+  value?: string | number
+  name?: string
+  type?: ExpressionTokenType
+  displayLabel?: string
   tableName?: string
   columnName?: string
 }
@@ -74,21 +88,23 @@ export interface ExpressionToken {
 const AGGREGATE_PATTERN = /\b(SUM|AVG|COUNT|COUNT_DISTINCT|MIN|MAX)\s*\(/i
 const METRIC_TOKEN_PATTERN = /\[\s*metric\./i
 
-function toSemanticToken(item: { kind?: string; role?: string; type?: string; metricId?: string; fieldId?: string }) {
-  if (item.kind === 'metric' || item.role === 'metric' || item.type === 'measure') {
-    if (!item.metricId) return ''
-    return item.metricId.startsWith('metric.') ? `[${item.metricId}]` : `[metric.${item.metricId}]`
-  }
-
-  if (item.kind === 'derived' || item.fieldId?.startsWith('derived.')) {
-    return item.fieldId ? `[${item.fieldId}]` : ''
-  }
-
-  if (item.kind === 'field' || item.fieldId) {
-    return item.fieldId ? `[${item.fieldId}]` : ''
-  }
-
+const AGGREGATE_FUNCTIONS = new Set(['SUM', 'AVG', 'COUNT', 'COUNT_DISTINCT', 'MIN', 'MAX'])
+const createId = () => `token-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+function toSemanticToken(item: { metricId?: string; fieldId?: string; kind?: string; type?: string }) {
+  if (item.metricId) return `[${item.metricId}]`
+  if (item.fieldId) return `[${item.fieldId}]`
   return ''
+}
+const serializeExpressionToken = (t: ExpressionToken) => {
+  switch (t.kind) {
+    case 'field': return `[${t.fieldId}]`
+    case 'metric': return `[${t.metricId}]`
+    case 'operator': return t.operator
+    case 'number': return `${t.value}`
+    case 'string': return `'${String(t.value ?? '').replaceAll("'", "''")}'`
+    case 'paren': return t.value
+    case 'function': return t.name
+  }
 }
 
 // Operators available for dragging
@@ -142,7 +158,7 @@ function DraggablePaletteItem({
   badge?: string
   badgeColor?: string
   tokenValue?: string
-  onSelect?: (token: Partial<ExpressionToken>) => void
+  onSelect?: (token: ExpressionToken) => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `palette-${id}`,
@@ -155,7 +171,12 @@ function DraggablePaletteItem({
       columnName: label,
     },
   })
-  const handleInsert = () => onSelect?.({ type, value: tokenValue ?? label, displayLabel: sublabel ? `${sublabel}.${label}` : label, tableName: sublabel, columnName: label })
+  const handleInsert = () => {
+    if (type === 'operator') {
+      const value = (tokenValue ?? label) as ArithmeticOperator | '(' | ')'
+      onSelect?.(value === '(' || value === ')' ? { id: createId(), kind: 'paren', value } : { id: createId(), kind: 'operator', operator: value as ArithmeticOperator })
+    }
+  }
 
     return (
     <div
@@ -189,7 +210,7 @@ function DraggablePaletteItem({
 }
 
 // Draggable operator button
-function DraggableOperator({ symbol, label, onSelect }: { symbol: string; label: string; onSelect?: (token: Partial<ExpressionToken>) => void }) {
+function DraggableOperator({ symbol, label, onSelect }: { symbol: string; label: string; onSelect?: (token: ExpressionToken) => void }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `operator-${symbol}`,
     data: {
@@ -204,7 +225,7 @@ function DraggableOperator({ symbol, label, onSelect }: { symbol: string; label:
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button onClick={() => onSelect?.({ type: 'operator', value: symbol, displayLabel: symbol })}
+          <button onClick={() => onSelect?.(symbol === '(' || symbol === ')' ? { id: createId(), kind: 'paren', value: symbol } : { id: createId(), kind: 'operator', operator: symbol as ArithmeticOperator })}
             ref={setNodeRef}
             {...listeners}
             {...attributes}
@@ -252,30 +273,31 @@ function SortableExpressionToken({
   }
 
   const getTokenStyle = () => {
-    switch (token.type) {
-      case 'column':
+    switch (token.kind) {
+      case 'field':
         return 'bg-slate-100 border-slate-300 dark:bg-slate-800 dark:border-slate-600'
       case 'metric':
         return 'bg-cyan-100 border-cyan-300 dark:bg-cyan-900 dark:border-cyan-600'
-      case 'measure':
-        return 'bg-orange-100 border-orange-300 dark:bg-orange-900 dark:border-orange-600'
-      case 'derived':
-        return 'bg-pink-100 border-pink-300 dark:bg-pink-900 dark:border-pink-600'
       case 'operator':
+      case 'paren':
         return 'bg-gray-100 border-gray-400 dark:bg-gray-800 dark:border-gray-500 font-mono'
-      case 'constant':
+      case 'number':
+      case 'string':
         return 'bg-emerald-100 border-emerald-300 dark:bg-emerald-900 dark:border-emerald-600'
+      case 'function':
+        return 'bg-orange-100 border-orange-300 dark:bg-orange-900 dark:border-orange-600'
     }
   }
 
   const getBadgeLabel = () => {
-    switch (token.type) {
-      case 'column': return 'Column'
+    switch (token.kind) {
+      case 'field': return 'Field'
       case 'metric': return 'Metric'
-      case 'measure': return 'Measure'
-      case 'derived': return 'Derived'
       case 'operator': return 'Op'
-      case 'constant': return 'Num'
+      case 'paren': return 'Op'
+      case 'number': return 'Num'
+      case 'string': return 'Str'
+      case 'function': return 'Fn'
     }
   }
 
@@ -297,7 +319,7 @@ function SortableExpressionToken({
         <GripVertical className="h-3 w-3" />
       </button>
 
-      {token.type === 'constant' ? (
+      {token.kind === 'number' ? (
         <input
           type="number"
           value={token.value}
@@ -305,8 +327,8 @@ function SortableExpressionToken({
           className="w-16 bg-transparent border-none text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary rounded px-1"
         />
       ) : (
-        <span className={cn('font-medium', token.type === 'operator' && 'px-1')}>
-          {token.displayLabel}
+        <span className={cn('font-medium', (token.kind === 'operator' || token.kind === 'paren') && 'px-1')}>
+          {token.kind === 'field' || token.kind === 'metric' ? token.displayName : token.kind === 'operator' ? token.operator : token.kind === 'paren' ? token.value : token.kind === 'string' ? token.value : token.kind === 'function' ? token.name : token.value}
         </span>
       )}
 
@@ -603,6 +625,9 @@ export function DerivedFieldExpressionBuilder({
   const [tokens, setTokens] = useState<ExpressionToken[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [activeId, setActiveId] = useState<string | null>(null)
+  const [mode, setMode] = useState<'visual' | 'formula'>('visual')
+  const [formulaText, setFormulaText] = useState('')
+  const [validationMessage, setValidationMessage] = useState<string>('')
 
   useEffect(() => {
     if (open) {
@@ -616,7 +641,7 @@ export function DerivedFieldExpressionBuilder({
       id: `token-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
       type: (token.type ?? 'constant') as ExpressionTokenType,
       value: token.value ?? '',
-      displayLabel: token.displayLabel ?? token.value ?? '',
+      displayLabel: token.displayLabel ?? String(token.value ?? ''),
       tableName: token.tableName,
       columnName: token.columnName,
     }
@@ -637,8 +662,8 @@ export function DerivedFieldExpressionBuilder({
 
   // Generate expression string from tokens
   const expressionString = useMemo(() => {
-    return tokens.map(t => t.value).join(' ')
-  }, [tokens])
+    return mode === 'formula' ? formulaText : tokens.map(serializeExpressionToken).filter(Boolean).join(' ')
+  }, [tokens, mode, formulaText])
 
   const hasAggregateExpression = useMemo(() => AGGREGATE_PATTERN.test(expressionString) || METRIC_TOKEN_PATTERN.test(expressionString), [expressionString])
 
@@ -770,7 +795,7 @@ export function DerivedFieldExpressionBuilder({
       toast.error('Please enter a derived field name')
       return
     }
-    if (tokens.length === 0) {
+    if ((mode === 'visual' && tokens.length === 0) || (mode === 'formula' && !formulaText.trim())) {
       toast.error('Please add at least one token to the expression')
       return
     }
@@ -794,7 +819,21 @@ export function DerivedFieldExpressionBuilder({
     setSearchQuery('')
     onOpenChange(false)
     toast.success(`Derived field "${name}" created`)
-  }, [name, tokens, expressionString, hasAggregateExpression, onSave, onOpenChange])
+  }, [name, tokens, mode, formulaText, expressionString, hasAggregateExpression, onSave, onOpenChange])
+
+  const handleValidate = useCallback(async () => {
+    try {
+      if (!metadata?.datasetId) throw new Error('No dataset selected.')
+      const result = await validateExpression(metadata.datasetId, { expression: expressionString, targetKind: 'auto' })
+      setValidationMessage(result.valid ? `Valid (${result.detectedKind}) • SQL: ${result.compiledSqlPreview}` : `Invalid: ${result.errors.join(', ')}`)
+      if (result.valid) toast.success('Expression is valid')
+      else toast.error(result.errors[0] ?? 'Expression invalid')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Validation failed'
+      setValidationMessage(message)
+      toast.error(message)
+    }
+  }, [metadata?.datasetId, expressionString])
 
   const handleClose = useCallback(() => {
     setName('')
@@ -824,6 +863,11 @@ export function DerivedFieldExpressionBuilder({
 
         {/* Name Input */}
         <div className="px-6 py-3 border-b flex-shrink-0">
+          <div className="mb-2 flex items-center gap-2">
+            <Button size="sm" variant={mode === 'visual' ? 'default' : 'outline'} onClick={() => setMode('visual')}>Visual Builder</Button>
+            <Button size="sm" variant={mode === 'formula' ? 'default' : 'outline'} onClick={() => setMode('formula')}>Formula Editor</Button>
+            <Button size="sm" variant="outline" onClick={handleValidate}>Validate Expression</Button>
+          </div>
           <Label htmlFor="derivedName" className="text-sm font-medium">
             Calculated Field Name
           </Label>
@@ -837,7 +881,7 @@ export function DerivedFieldExpressionBuilder({
         </div>
 
         {/* Main Content - Two Column Layout */}
-        <DndContext
+        {mode === 'visual' ? <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragStart={handleDragStart}
@@ -944,7 +988,16 @@ export function DerivedFieldExpressionBuilder({
               </div>
             ) : null}
           </DragOverlay>
-        </DndContext>
+        </DndContext> : (
+          <div className="p-4">
+            <Label className="text-sm font-medium mb-2 block">Formula Editor</Label>
+            <textarea value={formulaText} onChange={(e) => setFormulaText(e.target.value)} className="w-full min-h-[320px] rounded-md border p-3 font-mono text-sm" placeholder="Type formula, e.g. ROUND(([metric.sum_factsales_salesamount]-[metric.sum_factsales_totalproductcost])/[metric.sum_factsales_salesamount],4)" />
+            <div className="mt-2 text-xs text-muted-foreground">
+              Functions: IF, ROUND, COALESCE, NULLIF, CONCAT, YEAR, MONTH, DAY, SUM, AVG, MIN, MAX, COUNT, COUNT_DISTINCT
+            </div>
+            {validationMessage ? <div className="mt-2 text-xs">{validationMessage}</div> : null}
+          </div>
+        )}
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t flex-shrink-0">
