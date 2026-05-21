@@ -716,14 +716,10 @@ export function DerivedFieldExpressionBuilder({
     // Handle dropping from palette to canvas
     if (active.data.current?.type === 'palette-item') {
       if (over.id === 'expression-canvas' || tokens.some(t => t.id === over.id)) {
-        const payload = active.data.current as Partial<ExpressionToken> & { tokenType?: ExpressionTokenType; value?: string | number }
-        const legacyOperatorValue = typeof payload.value === 'string' ? payload.value : undefined
-        const mappedLegacyKind = !payload.kind && payload.tokenType === 'operator'
-          ? (legacyOperatorValue === '(' || legacyOperatorValue === ')' ? 'paren' : 'operator')
-          : payload.kind
+        const payload = active.data.current as Partial<ExpressionToken> & { tokenType?: ExpressionTokenType }
         const newToken: ExpressionToken = {
           id: createId(),
-          kind: mappedLegacyKind,
+          kind: payload.kind,
           fieldId: payload.fieldId,
           metricId: payload.metricId,
           displayName: payload.displayName,
@@ -734,8 +730,8 @@ export function DerivedFieldExpressionBuilder({
           formula: payload.formula,
           baseTableId: payload.baseTableId,
           aggregationBehavior: payload.aggregationBehavior,
-          operator: mappedLegacyKind === 'operator' ? (payload.operator ?? (legacyOperatorValue as ArithmeticOperator | undefined)) : payload.operator,
-          value: mappedLegacyKind === 'paren' ? (payload.value ?? legacyOperatorValue) : payload.value,
+          operator: payload.operator,
+          value: payload.value,
           name: payload.name,
         }
 
@@ -846,18 +842,6 @@ export function DerivedFieldExpressionBuilder({
       return
     }
     const serializedExpression = mode === 'formula' ? formulaText.trim() : tokens.map(serializeExpressionToken).filter(Boolean).join(' ')
-    if (mode === 'visual') {
-      const invalidToken = tokens.find((token) => {
-        if (!token.kind) return true
-        const serialized = serializeExpressionToken(token)
-        return !serialized?.toString().trim()
-      })
-      if (invalidToken) {
-        console.error('Invalid expression token', invalidToken)
-        toast.error('Expression contains invalid token.')
-        return
-      }
-    }
     if (!serializedExpression) {
       if (tokens.length > 0) {
         console.error('Expression serialization failed for tokens', tokens)
