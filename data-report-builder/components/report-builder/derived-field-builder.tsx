@@ -24,9 +24,6 @@ import {
   FunctionSquare,
   Search,
   Hash,
-  Calculator,
-  Sigma,
-  Plus,
   Trash2,
   X,
   Copy,
@@ -60,7 +57,7 @@ import {
   type CalculatedField,
 } from '@/lib/schema-data'
 import { type DatasetMetadataResponse } from '@/lib/report-metadata-api'
-import { getFieldsForDerivedExpression, getFieldsForMetricExpression } from '@/lib/metadata-selectors'
+import { getFieldsForDerivedExpression } from '@/lib/metadata-selectors'
 
 // Token types for the expression builder
 export type ExpressionTokenType = 'column' | 'metric' | 'measure' | 'derived' | 'operator' | 'constant'
@@ -72,6 +69,26 @@ export interface ExpressionToken {
   displayLabel: string
   tableName?: string
   columnName?: string
+}
+
+const AGGREGATE_PATTERN = /\b(SUM|AVG|COUNT|COUNT_DISTINCT|MIN|MAX)\s*\(/i
+const METRIC_TOKEN_PATTERN = /\[\s*metric\./i
+
+function toSemanticToken(item: { kind?: string; role?: string; type?: string; metricId?: string; fieldId?: string }) {
+  if (item.kind === 'metric' || item.role === 'metric' || item.type === 'measure') {
+    if (!item.metricId) return ''
+    return item.metricId.startsWith('metric.') ? `[${item.metricId}]` : `[metric.${item.metricId}]`
+  }
+
+  if (item.kind === 'derived' || item.fieldId?.startsWith('derived.')) {
+    return item.fieldId ? `[${item.fieldId}]` : ''
+  }
+
+  if (item.kind === 'field' || item.fieldId) {
+    return item.fieldId ? `[${item.fieldId}]` : ''
+  }
+
+  return ''
 }
 
 // Operators available for dragging
@@ -97,8 +114,6 @@ const logicalOperators = [
   { symbol: 'OR', label: 'Or' },
 ]
 
-// Metrics available (aggregation functions)
-const metricFunctions = ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT', 'COUNTD']
 
 interface DerivedFieldExpressionBuilderProps {
   open: boolean
@@ -117,6 +132,8 @@ function DraggablePaletteItem({
   sublabel,
   badge,
   badgeColor,
+  tokenValue,
+  onSelect,
 }: {
   id: string
   type: ExpressionTokenType
@@ -124,24 +141,28 @@ function DraggablePaletteItem({
   sublabel?: string
   badge?: string
   badgeColor?: string
+  tokenValue?: string
+  onSelect?: (token: Partial<ExpressionToken>) => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `palette-${id}`,
     data: {
       type: 'palette-item',
       tokenType: type,
-      value: label,
+      value: tokenValue ?? label,
       displayLabel: sublabel ? `${sublabel}.${label}` : label,
       tableName: sublabel,
       columnName: label,
     },
   })
+  const handleInsert = () => onSelect?.({ type, value: tokenValue ?? label, displayLabel: sublabel ? `${sublabel}.${label}` : label, tableName: sublabel, columnName: label })
 
-  return (
+    return (
     <div
       ref={setNodeRef}
       {...listeners}
       {...attributes}
+      onClick={handleInsert}
       className={cn(
         'flex items-center gap-2 px-2 py-1.5 rounded-md cursor-grab active:cursor-grabbing transition-colors',
         'hover:bg-accent border border-transparent hover:border-border',
@@ -168,7 +189,7 @@ function DraggablePaletteItem({
 }
 
 // Draggable operator button
-function DraggableOperator({ symbol, label }: { symbol: string; label: string }) {
+function DraggableOperator({ symbol, label, onSelect }: { symbol: string; label: string; onSelect?: (token: Partial<ExpressionToken>) => void }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `operator-${symbol}`,
     data: {
@@ -183,7 +204,7 @@ function DraggableOperator({ symbol, label }: { symbol: string; label: string })
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <button onClick={() => onSelect?.({ type: 'operator', value: symbol, displayLabel: symbol })}
             ref={setNodeRef}
             {...listeners}
             {...attributes}
@@ -258,7 +279,7 @@ function SortableExpressionToken({
     }
   }
 
-  return (
+    return (
     <div
       ref={setNodeRef}
       style={style}
@@ -329,7 +350,7 @@ function ExpressionCanvas({
     id: 'expression-canvas',
   })
 
-  return (
+    return (
     <div
       ref={setNodeRef}
       className={cn(
@@ -371,12 +392,14 @@ function ExpressionPalette({
   existingMeasures,
   existingDerivedFields,
   metadata,
+  onInsertToken,
 }: {
   searchQuery: string
   setSearchQuery: (q: string) => void
   existingMeasures: CalculatedField[]
   existingDerivedFields: CalculatedField[]
   metadata: DatasetMetadataResponse | null
+  onInsertToken: (token: Partial<ExpressionToken>) => void
 }) {
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set())
 
@@ -409,7 +432,7 @@ function ExpressionPalette({
       table.fields.some(col => col.displayName.toLowerCase().includes(term)))
   }, [searchQuery, fieldsByTable])
 
-  return (
+    return (
     <div className="h-full flex flex-col border-r">
       {/* Search */}
       <div className="p-2 border-b flex-shrink-0">
@@ -432,12 +455,6 @@ function ExpressionPalette({
             className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent text-xs px-3 py-2"
           >
             Fields
-          </TabsTrigger>
-          <TabsTrigger
-            value="metrics"
-            className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent text-xs px-3 py-2"
-          >
-            Metrics
           </TabsTrigger>
           <TabsTrigger
             value="measures"
@@ -477,9 +494,11 @@ function ExpressionPalette({
                         id={col.fieldId}
                         type="column"
                         label={col.fieldId}
+                        tokenValue={`[${table.tableId.toLowerCase()}.${col.fieldId.toLowerCase()}]`}
                         sublabel={table.tableId}
                         badge={col.sqlDataType || col.dataType}
                         badgeColor="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        onSelect={onInsertToken}
                       />
                     ))}
                   </div>
@@ -488,43 +507,29 @@ function ExpressionPalette({
             ))}
           </TabsContent>
 
-          <TabsContent value="metrics" className="m-0 p-2 space-y-0.5">
-            <p className="text-xs text-muted-foreground mb-2 px-1">
-              Aggregation functions
-            </p>
-            {metricFunctions.map((fn) => (
-              <DraggablePaletteItem
-                key={fn}
-                id={`metric-${fn}`}
-                type="metric"
-                label={fn}
-                badge="Metric"
-                badgeColor="bg-cyan-100 text-cyan-700 dark:bg-cyan-900 dark:text-cyan-300"
-              />
-            ))}
-          </TabsContent>
-
           <TabsContent value="measures" className="m-0 p-2 space-y-0.5">
             <p className="text-xs text-muted-foreground mb-2 px-1">
               Existing measures
             </p>
-            {existingMeasures.length === 0 ? (
-              <p className="text-xs text-muted-foreground px-2 py-4 text-center">
-                No measures created yet
-              </p>
-            ) : (
-              existingMeasures.map((measure) => (
-                <DraggablePaletteItem
-                  key={measure.id}
-                  id={measure.id}
-                  type="measure"
-                  label={`[${measure.name}]`}
-                  sublabel={`${measure.aggregationFunction}(${measure.sourceTable}.${measure.sourceColumn})`}
-                  badge="Measure"
-                  badgeColor="bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300"
-                />
-              ))
-            )}
+            {[...((metadata?.metrics ?? []).filter((metric) => !metric.isHidden).map((metric) => ({
+              id: metric.metricId,
+              name: metric.displayName,
+              token: toSemanticToken({ kind: 'metric', metricId: metric.metricId }),
+              detail: `${metric.formula} • Base: ${metric.baseTableId} • Agg: ${metric.aggregationBehavior} • Type: ${metric.dataType}/${metric.format}`,
+              metricId: metric.metricId,
+            }))), ...existingMeasures.map((measure) => ({ id: measure.id, name: measure.name, token: toSemanticToken({ type: 'measure', metricId: measure.id }), detail: `${measure.aggregationFunction}([${measure.sourceTable?.toLowerCase()}.${measure.sourceColumn?.toLowerCase()}])`, metricId: measure.id }))].map((measure) => (
+              <DraggablePaletteItem
+                key={measure.id}
+                id={measure.id}
+                type="measure"
+                label={measure.name}
+                tokenValue={measure.token}
+                sublabel={`${measure.metricId ? `${measure.metricId} • ` : ''}${measure.detail}`}
+                badge="Measure"
+                badgeColor="bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300"
+                onSelect={onInsertToken}
+              />
+            ))}
 
             <div className="border-t mt-3 pt-3">
               <p className="text-xs text-muted-foreground mb-2 px-1">
@@ -544,6 +549,8 @@ function ExpressionPalette({
                     sublabel={derived.expression?.substring(0, 30)}
                     badge="Derived"
                     badgeColor="bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-300"
+                    tokenValue={`[${derived.name}]`}
+                    onSelect={onInsertToken}
                   />
                 ))
               )}
@@ -556,7 +563,7 @@ function ExpressionPalette({
             </p>
             <div className="flex flex-wrap gap-2 mb-4">
               {operators.map((op) => (
-                <DraggableOperator key={op.symbol} symbol={op.symbol} label={op.label} />
+                <DraggableOperator key={op.symbol} symbol={op.symbol} label={op.label} onSelect={onInsertToken} />
               ))}
             </div>
 
@@ -565,7 +572,7 @@ function ExpressionPalette({
             </p>
             <div className="flex flex-wrap gap-2 mb-4">
               {comparisonOperators.map((op) => (
-                <DraggableOperator key={op.symbol} symbol={op.symbol} label={op.label} />
+                <DraggableOperator key={op.symbol} symbol={op.symbol} label={op.label} onSelect={onInsertToken} />
               ))}
             </div>
 
@@ -574,7 +581,7 @@ function ExpressionPalette({
             </p>
             <div className="flex flex-wrap gap-2">
               {logicalOperators.map((op) => (
-                <DraggableOperator key={op.symbol} symbol={op.symbol} label={op.label} />
+                <DraggableOperator key={op.symbol} symbol={op.symbol} label={op.label} onSelect={onInsertToken} />
               ))}
             </div>
           </TabsContent>
@@ -603,6 +610,23 @@ export function DerivedFieldExpressionBuilder({
     }
   }, [open, metadata])
 
+
+  const appendToken = useCallback((token: Partial<ExpressionToken>) => {
+    const next: ExpressionToken = {
+      id: `token-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      type: (token.type ?? 'constant') as ExpressionTokenType,
+      value: token.value ?? '',
+      displayLabel: token.displayLabel ?? token.value ?? '',
+      tableName: token.tableName,
+      columnName: token.columnName,
+    }
+    setTokens(prev => [...prev, next])
+  }, [])
+
+  useEffect(() => {
+    setTokens([])
+    setSearchQuery('')
+  }, [metadata?.datasetId])
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
@@ -615,6 +639,8 @@ export function DerivedFieldExpressionBuilder({
   const expressionString = useMemo(() => {
     return tokens.map(t => t.value).join(' ')
   }, [tokens])
+
+  const hasAggregateExpression = useMemo(() => AGGREGATE_PATTERN.test(expressionString) || METRIC_TOKEN_PATTERN.test(expressionString), [expressionString])
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(event.active.id as string)
@@ -748,6 +774,10 @@ export function DerivedFieldExpressionBuilder({
       toast.error('Please add at least one token to the expression')
       return
     }
+    if (hasAggregateExpression) {
+      toast.error('This expression uses measures. Save it as a Measure, not a Derived Field.')
+      return
+    }
 
     const newDerived: CalculatedField = {
       id: `derived-${Date.now()}`,
@@ -764,7 +794,7 @@ export function DerivedFieldExpressionBuilder({
     setSearchQuery('')
     onOpenChange(false)
     toast.success(`Derived field "${name}" created`)
-  }, [name, tokens, expressionString, onSave, onOpenChange])
+  }, [name, tokens, expressionString, hasAggregateExpression, onSave, onOpenChange])
 
   const handleClose = useCallback(() => {
     setName('')
@@ -785,6 +815,11 @@ export function DerivedFieldExpressionBuilder({
           <p className="text-sm text-muted-foreground">
             Drag fields, measures, and operators to build an expression.
           </p>
+          {hasAggregateExpression && (
+            <p className="text-sm text-amber-600">
+              This expression uses measures/aggregates. Save it as a Measure, not a Derived Field.
+            </p>
+          )}
         </DialogHeader>
 
         {/* Name Input */}
@@ -818,6 +853,7 @@ export function DerivedFieldExpressionBuilder({
           existingMeasures={existingMeasures}
           existingDerivedFields={existingDerivedFields}
           metadata={metadata}
+          onInsertToken={appendToken}
         />
             </div>
 
@@ -917,7 +953,7 @@ export function DerivedFieldExpressionBuilder({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={!name.trim() || tokens.length === 0}
+            disabled={!name.trim() || tokens.length === 0 || hasAggregateExpression}
           >
             Save Derived Field
           </Button>
