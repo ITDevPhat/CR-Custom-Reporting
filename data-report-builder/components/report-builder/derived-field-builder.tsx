@@ -774,6 +774,11 @@ export function DerivedFieldExpressionBuilder({
       toast.error('Please add at least one token to the expression')
       return
     }
+    if (hasAggregateExpression) {
+      toast.error('This expression uses measures. Save it as a Measure, not a Derived Field.')
+      return
+    }
+
     const newDerived: CalculatedField = {
       id: `derived-${Date.now()}`,
       name: name.trim(),
@@ -789,7 +794,7 @@ export function DerivedFieldExpressionBuilder({
     setSearchQuery('')
     onOpenChange(false)
     toast.success(`Derived field "${name}" created`)
-  }, [name, tokens, expressionString, onSave, onOpenChange])
+  }, [name, tokens, expressionString, hasAggregateExpression, onSave, onOpenChange])
 
   const handleClose = useCallback(() => {
     setName('')
@@ -811,8 +816,8 @@ export function DerivedFieldExpressionBuilder({
             Drag fields, measures, and operators to build an expression.
           </p>
           {hasAggregateExpression && (
-            <p className="text-sm text-blue-600">
-              This expression will be saved as a Calculated Measure.
+            <p className="text-sm text-amber-600">
+              This expression uses measures/aggregates. Save it as a Measure, not a Derived Field.
             </p>
           )}
         </DialogHeader>
@@ -948,7 +953,7 @@ export function DerivedFieldExpressionBuilder({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={!name.trim() || tokens.length === 0}
+            disabled={!name.trim() || tokens.length === 0 || hasAggregateExpression}
           >
             Save Derived Field
           </Button>

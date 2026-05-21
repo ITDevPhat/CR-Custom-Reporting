@@ -195,6 +195,10 @@ public sealed partial class SemanticModelMutationService
         {
             yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived field display name is required." };
         }
+        if (AggregateRefs().IsMatch(request.Expression) || MetricRef().IsMatch(request.Expression))
+        {
+            yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived fields cannot reference measures or aggregate functions. Create a measure instead." };
+        }
         if (RawSqlTokens().IsMatch(request.Expression))
         {
             yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived expression contains unsupported SQL tokens." };
@@ -203,6 +207,16 @@ public sealed partial class SemanticModelMutationService
         if (refs.Count == 0) yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived expression must reference at least one field." };
         foreach (var fieldId in refs)
         {
+            if (fieldId.StartsWith("metric.metric.", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return new ValidationMessage { Code = "UNKNOWN_METRIC_REFERENCE", Message = $"Unknown metric reference: {fieldId}." };
+                continue;
+            }
+            if (fieldId.StartsWith("metric.", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived fields cannot reference measures or aggregate functions. Create a measure instead." };
+                continue;
+            }
             var field = model.Fields.FirstOrDefault(f => f.FieldId.Equals(fieldId, StringComparison.OrdinalIgnoreCase));
             if (field is null) yield return new ValidationMessage { Code = "UNKNOWN_FIELD_REFERENCE", Message = $"Unknown field reference: {fieldId}." };
             else if (!field.TableId.Equals(request.BaseTableId, StringComparison.OrdinalIgnoreCase)) yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived field references must belong to the same base table." };
@@ -224,6 +238,8 @@ public sealed partial class SemanticModelMutationService
     private static partial Regex FieldRefs();
     [GeneratedRegex(@"\b(SUM|COUNT|COUNT_DISTINCT|AVG|MIN|MAX)\s*\(\s*\[([^\]]+)\]\s*\)", RegexOptions.IgnoreCase)]
     private static partial Regex AggregateRefs();
+    [GeneratedRegex(@"\[\s*metric\.", RegexOptions.IgnoreCase)]
+    private static partial Regex MetricRef();
     [GeneratedRegex(@"\b(SELECT|FROM|JOIN|INSERT|UPDATE|DELETE|DROP|ALTER|EXEC|;|--)\b", RegexOptions.IgnoreCase)]
     private static partial Regex RawSqlTokens();
     [GeneratedRegex("[^a-z0-9]+")]
