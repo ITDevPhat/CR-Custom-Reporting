@@ -58,7 +58,7 @@ import {
 } from '@/lib/schema-data'
 import { type DatasetMetadataResponse } from '@/lib/report-metadata-api'
 import { getFieldsForDerivedExpression } from '@/lib/metadata-selectors'
-import { validateExpression } from '@/lib/semantic-management-api'
+import { validateExpression, createMetric, createDerivedField } from '@/lib/semantic-management-api'
 
 // Token types for the expression builder
 export type ExpressionTokenType = 'field' | 'metric' | 'operator' | 'number' | 'string' | 'paren' | 'function' | 'column' | 'measure' | 'derived' | 'constant'
@@ -99,10 +99,10 @@ const serializeExpressionToken = (t: ExpressionToken) => {
   switch (t.kind) {
     case 'field': return `[${t.fieldId}]`
     case 'metric': return `[${t.metricId}]`
-    case 'operator': return t.operator
+    case 'operator': return t.operator ?? String(t.value ?? '')
     case 'number': return `${t.value}`
     case 'string': return `'${String(t.value ?? '').replaceAll("'", "''")}'`
-    case 'paren': return t.value
+    case 'paren': return String(t.value ?? '')
     case 'function': return t.name
   }
 }
@@ -149,6 +149,7 @@ function DraggablePaletteItem({
   badge,
   badgeColor,
   tokenValue,
+  token,
   onSelect,
 }: {
   id: string
@@ -158,23 +159,33 @@ function DraggablePaletteItem({
   badge?: string
   badgeColor?: string
   tokenValue?: string
+  token?: Partial<ExpressionToken>
   onSelect?: (token: ExpressionToken) => void
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `palette-${id}`,
     data: {
       type: 'palette-item',
-      tokenType: type,
+      kind: type === 'column' ? 'field' : type === 'measure' ? 'metric' : type === 'operator' ? 'operator' : undefined,
+      fieldId: type === 'column' ? label : undefined,
+      metricId: type === 'measure' ? id : undefined,
+      displayName: label,
+      tableId: sublabel,
       value: tokenValue ?? label,
-      displayLabel: sublabel ? `${sublabel}.${label}` : label,
-      tableName: sublabel,
-      columnName: label,
     },
   })
   const handleInsert = () => {
     if (type === 'operator') {
       const value = (tokenValue ?? label) as ArithmeticOperator | '(' | ')'
       onSelect?.(value === '(' || value === ')' ? { id: createId(), kind: 'paren', value } : { id: createId(), kind: 'operator', operator: value as ArithmeticOperator })
+      return
+    }
+    if (type === 'column') {
+      onSelect?.({ id: createId(), kind: 'field', fieldId: id, displayName: label, tableId: sublabel, ...token })
+      return
+    }
+    if (type === 'measure') {
+      onSelect?.({ id: createId(), kind: 'metric', metricId: id, displayName: label, ...token })
     }
   }
 
@@ -211,13 +222,15 @@ function DraggablePaletteItem({
 
 // Draggable operator button
 function DraggableOperator({ symbol, label, onSelect }: { symbol: string; label: string; onSelect?: (token: ExpressionToken) => void }) {
+  const isParen = symbol === '(' || symbol === ')'
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `operator-${symbol}`,
     data: {
       type: 'palette-item',
-      tokenType: 'operator',
-      value: symbol,
-      displayLabel: symbol,
+      kind: isParen ? 'paren' : 'operator',
+      operator: isParen ? undefined : symbol,
+      value: isParen ? symbol : undefined,
+      displayName: symbol,
     },
   })
 
@@ -225,7 +238,7 @@ function DraggableOperator({ symbol, label, onSelect }: { symbol: string; label:
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button onClick={() => onSelect?.(symbol === '(' || symbol === ')' ? { id: createId(), kind: 'paren', value: symbol } : { id: createId(), kind: 'operator', operator: symbol as ArithmeticOperator })}
+          <button onClick={() => onSelect?.(isParen ? { id: createId(), kind: 'paren', value: symbol } : { id: createId(), kind: 'operator', operator: symbol as ArithmeticOperator })}
             ref={setNodeRef}
             {...listeners}
             {...attributes}
@@ -256,7 +269,7 @@ function SortableExpressionToken({
   token: ExpressionToken
   onRemove: () => void
   onDuplicate: () => void
-  onValueChange?: (value: string) => void
+  onValueChange?: (value: string | number) => void
 }) {
   const {
     attributes,
@@ -322,8 +335,11 @@ function SortableExpressionToken({
       {token.kind === 'number' ? (
         <input
           type="number"
-          value={token.value}
-          onChange={(e) => onValueChange?.(e.target.value)}
+          value={token.value === '' ? '' : Number(token.value ?? 0)}
+          onChange={(e) => onValueChange?.(e.target.value === '' ? '' : Number(e.target.value))}
+          onBlur={(e) => { if (e.target.value === '') onValueChange?.(0) }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
           className="w-16 bg-transparent border-none text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary rounded px-1"
         />
       ) : (
@@ -366,7 +382,7 @@ function ExpressionCanvas({
   tokens: ExpressionToken[]
   onRemoveToken: (id: string) => void
   onDuplicateToken: (id: string) => void
-  onUpdateTokenValue: (id: string, value: string) => void
+  onUpdateTokenValue: (id: string, value: string | number) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({
     id: 'expression-canvas',
@@ -539,12 +555,20 @@ function ExpressionPalette({
               token: toSemanticToken({ kind: 'metric', metricId: metric.metricId }),
               detail: `${metric.formula} • Base: ${metric.baseTableId} • Agg: ${metric.aggregationBehavior} • Type: ${metric.dataType}/${metric.format}`,
               metricId: metric.metricId,
-            }))), ...existingMeasures.map((measure) => ({ id: measure.id, name: measure.name, token: toSemanticToken({ type: 'measure', metricId: measure.id }), detail: `${measure.aggregationFunction}([${measure.sourceTable?.toLowerCase()}.${measure.sourceColumn?.toLowerCase()}])`, metricId: measure.id }))].map((measure) => (
+              tokenShape: {
+                kind: 'metric' as const,
+                metricId: metric.metricId,
+                displayName: metric.displayName,
+                formula: metric.formula,
+                baseTableId: metric.baseTableId,
+              },
+            }))), ...existingMeasures.map((measure) => ({ id: measure.id, name: measure.name, token: toSemanticToken({ type: 'measure', metricId: measure.id }), detail: `${measure.aggregationFunction}([${measure.sourceTable?.toLowerCase()}.${measure.sourceColumn?.toLowerCase()}])`, metricId: measure.id, tokenShape: { kind: 'metric' as const, metricId: measure.id, displayName: measure.name } }))].map((measure) => (
               <DraggablePaletteItem
                 key={measure.id}
                 id={measure.id}
                 type="measure"
                 label={measure.name}
+                token={measure.tokenShape}
                 tokenValue={measure.token}
                 sublabel={`${measure.metricId ? `${measure.metricId} • ` : ''}${measure.detail}`}
                 badge="Measure"
@@ -638,12 +662,21 @@ export function DerivedFieldExpressionBuilder({
 
   const appendToken = useCallback((token: Partial<ExpressionToken>) => {
     const next: ExpressionToken = {
-      id: `token-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-      type: (token.type ?? 'constant') as ExpressionTokenType,
-      value: token.value ?? '',
-      displayLabel: token.displayLabel ?? String(token.value ?? ''),
-      tableName: token.tableName,
-      columnName: token.columnName,
+      id: createId(),
+      kind: token.kind,
+      fieldId: token.fieldId,
+      metricId: token.metricId,
+      displayName: token.displayName,
+      tableId: token.tableId,
+      dataType: token.dataType,
+      semanticType: token.semanticType,
+      role: token.role,
+      formula: token.formula,
+      baseTableId: token.baseTableId,
+      aggregationBehavior: token.aggregationBehavior,
+      operator: token.operator,
+      value: token.value,
+      name: token.name,
     }
     setTokens(prev => [...prev, next])
   }, [])
@@ -666,6 +699,9 @@ export function DerivedFieldExpressionBuilder({
   }, [tokens, mode, formulaText])
 
   const hasAggregateExpression = useMemo(() => AGGREGATE_PATTERN.test(expressionString) || METRIC_TOKEN_PATTERN.test(expressionString), [expressionString])
+  const detectedKind = useMemo<'calculated_measure' | 'calculated_column'>(() => (
+    hasAggregateExpression ? 'calculated_measure' : 'calculated_column'
+  ), [hasAggregateExpression])
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(event.active.id as string)
@@ -680,15 +716,27 @@ export function DerivedFieldExpressionBuilder({
     // Handle dropping from palette to canvas
     if (active.data.current?.type === 'palette-item') {
       if (over.id === 'expression-canvas' || tokens.some(t => t.id === over.id)) {
-        const { tokenType, value, displayLabel, tableName, columnName } = active.data.current
-
+        const payload = active.data.current as Partial<ExpressionToken> & { tokenType?: ExpressionTokenType; value?: string | number }
+        const legacyOperatorValue = typeof payload.value === 'string' ? payload.value : undefined
+        const mappedLegacyKind = !payload.kind && payload.tokenType === 'operator'
+          ? (legacyOperatorValue === '(' || legacyOperatorValue === ')' ? 'paren' : 'operator')
+          : payload.kind
         const newToken: ExpressionToken = {
-          id: `token-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          type: tokenType,
-          value: tokenType === 'constant' ? '0' : value,
-          displayLabel: tokenType === 'constant' ? '0' : displayLabel,
-          tableName,
-          columnName,
+          id: createId(),
+          kind: mappedLegacyKind,
+          fieldId: payload.fieldId,
+          metricId: payload.metricId,
+          displayName: payload.displayName,
+          tableId: payload.tableId,
+          dataType: payload.dataType,
+          semanticType: payload.semanticType,
+          role: payload.role,
+          formula: payload.formula,
+          baseTableId: payload.baseTableId,
+          aggregationBehavior: payload.aggregationBehavior,
+          operator: mappedLegacyKind === 'operator' ? (payload.operator ?? (legacyOperatorValue as ArithmeticOperator | undefined)) : payload.operator,
+          value: mappedLegacyKind === 'paren' ? (payload.value ?? legacyOperatorValue) : payload.value,
+          name: payload.name,
         }
 
         // Find insertion index if dropped over another token
@@ -743,10 +791,10 @@ export function DerivedFieldExpressionBuilder({
     }
   }, [tokens])
 
-  const updateTokenValue = useCallback((id: string, value: string) => {
+  const updateTokenValue = useCallback((id: string, value: string | number) => {
     setTokens(prev =>
       prev.map(t =>
-        t.id === id ? { ...t, value, displayLabel: value } : t
+        t.id === id ? { ...t, value, displayName: String(value) } : t
       )
     )
   }, [])
@@ -757,26 +805,24 @@ export function DerivedFieldExpressionBuilder({
 
   const addParentheses = useCallback(() => {
     const openParen: ExpressionToken = {
-      id: `token-${Date.now()}-open`,
-      type: 'operator',
+      id: createId(),
+      kind: 'paren',
       value: '(',
-      displayLabel: '(',
     }
     const closeParen: ExpressionToken = {
-      id: `token-${Date.now()}-close`,
-      type: 'operator',
+      id: createId(),
+      kind: 'paren',
       value: ')',
-      displayLabel: ')',
     }
     setTokens(prev => [...prev, openParen, closeParen])
   }, [])
 
   const addNumber = useCallback(() => {
     const newToken: ExpressionToken = {
-      id: `token-${Date.now()}-num`,
-      type: 'constant',
-      value: '0',
-      displayLabel: '0',
+      id: createId(),
+      kind: 'number',
+      value: 0,
+      displayName: '0',
     }
     setTokens(prev => [...prev, newToken])
   }, [])
@@ -790,36 +836,62 @@ export function DerivedFieldExpressionBuilder({
     toast.success('Expression copied to clipboard')
   }, [expressionString])
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
+    if (!metadata?.datasetId) {
+      toast.error('No dataset selected')
+      return
+    }
     if (!name.trim()) {
       toast.error('Please enter a derived field name')
       return
     }
-    if ((mode === 'visual' && tokens.length === 0) || (mode === 'formula' && !formulaText.trim())) {
-      toast.error('Please add at least one token to the expression')
+    const serializedExpression = mode === 'formula' ? formulaText.trim() : tokens.map(serializeExpressionToken).filter(Boolean).join(' ')
+    if (mode === 'visual') {
+      const invalidToken = tokens.find((token) => {
+        if (!token.kind) return true
+        const serialized = serializeExpressionToken(token)
+        return !serialized?.toString().trim()
+      })
+      if (invalidToken) {
+        console.error('Invalid expression token', invalidToken)
+        toast.error('Expression contains invalid token.')
+        return
+      }
+    }
+    if (!serializedExpression) {
+      if (tokens.length > 0) {
+        console.error('Expression serialization failed for tokens', tokens)
+      }
+      toast.error('Expression is empty. Please verify expression tokens.')
       return
     }
-    if (hasAggregateExpression) {
-      toast.error('This expression uses measures. Save it as a Measure, not a Derived Field.')
+    if (tokens.some((token) => token.kind === 'number' && token.value !== '' && Number.isNaN(Number(token.value)))) {
+      toast.error('Expression contains invalid number tokens')
       return
     }
-
-    const newDerived: CalculatedField = {
-      id: `derived-${Date.now()}`,
-      name: name.trim(),
-      type: 'derived',
-      expression: expressionString,
+    try {
+      const validation = await validateExpression(metadata.datasetId, { expression: serializedExpression, targetKind: 'auto' })
+      if (!validation.valid) {
+        toast.error(validation.errors[0] ?? 'Expression validation failed')
+        return
+      }
+      if (validation.detectedKind === 'calculated_measure') {
+        await createMetric(metadata.datasetId, { displayName: name.trim(), formula: serializedExpression, baseTableId: metadata.tables[0]?.tableId ?? '', aggregationBehavior: 'calculated', dataType: 'decimal', format: 'general', isHidden: false, isDraggable: true })
+        onSave({ id: `metric-${Date.now()}`, name: name.trim(), type: 'measure', expression: serializedExpression })
+        toast.success(`Calculated measure "${name.trim()}" created`)
+      } else {
+        await createDerivedField(metadata.datasetId, { displayName: name.trim(), baseTableId: metadata.tables[0]?.tableId ?? '', expression: serializedExpression, dataType: 'nvarchar', semanticType: 'dimension', format: 'general', isHidden: false, isDraggable: true })
+        onSave({ id: `derived-${Date.now()}`, name: name.trim(), type: 'derived', expression: serializedExpression })
+        toast.success(`Calculated column "${name.trim()}" created`)
+      }
+      setName('')
+      setTokens([])
+      setSearchQuery('')
+      onOpenChange(false)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Save failed')
     }
-
-    onSave(newDerived)
-
-    // Reset state
-    setName('')
-    setTokens([])
-    setSearchQuery('')
-    onOpenChange(false)
-    toast.success(`Derived field "${name}" created`)
-  }, [name, tokens, mode, formulaText, expressionString, hasAggregateExpression, onSave, onOpenChange])
+  }, [metadata, name, mode, formulaText, tokens, onSave, onOpenChange])
 
   const handleValidate = useCallback(async () => {
     try {
@@ -1006,9 +1078,9 @@ export function DerivedFieldExpressionBuilder({
           </Button>
           <Button
             onClick={handleSave}
-            disabled={!name.trim() || tokens.length === 0 || hasAggregateExpression}
+            disabled={!name.trim() || (mode === 'visual' ? tokens.length === 0 : !formulaText.trim())}
           >
-            {hasAggregateExpression ? 'Save Calculated Measure' : 'Save Calculated Column'}
+            {detectedKind === 'calculated_measure' ? 'Save Calculated Measure' : 'Save Calculated Column'}
           </Button>
         </div>
       </DialogContent>
