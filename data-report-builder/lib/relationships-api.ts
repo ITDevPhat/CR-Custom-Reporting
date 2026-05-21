@@ -74,3 +74,9 @@ export function autodetectRelationships(datasetId: string) {
     body: JSON.stringify({ datasetId, mode: 'safe', includeExisting: false }),
   })
 }
+
+export function activateRelationship(datasetId: string, relationshipId: string) {
+  return request<RelationshipDto[]>(`/api/datasets/${encodeURIComponent(datasetId)}/relationships/${encodeURIComponent(relationshipId)}/activate`, {
+    method: 'POST',
+  })
+}

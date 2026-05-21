@@ -37,4 +37,8 @@ public sealed class RelationshipsController : ControllerBase
     [HttpPost("autodetect")]
     public async Task<IActionResult> Autodetect(string datasetId, [FromBody] AutodetectRelationshipsRequest request, CancellationToken ct) =>
         Ok(await _service.AutodetectAsync(datasetId, request, ct));
+
+    [HttpPost("{relationshipId}/activate")]
+    public async Task<IActionResult> Activate(string datasetId, string relationshipId, CancellationToken ct) =>
+        Ok(await _service.ActivateAsync(datasetId, relationshipId, ct));
 }

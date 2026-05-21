@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   DndContext,
   DragEndEvent,
@@ -58,8 +58,9 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import {
   type CalculatedField,
-  schemaData,
 } from '@/lib/schema-data'
+import { type DatasetMetadataResponse } from '@/lib/report-metadata-api'
+import { getFieldsForDerivedExpression, getFieldsForMetricExpression } from '@/lib/metadata-selectors'
 
 // Token types for the expression builder
 export type ExpressionTokenType = 'column' | 'metric' | 'measure' | 'derived' | 'operator' | 'constant'
@@ -105,6 +106,7 @@ interface DerivedFieldExpressionBuilderProps {
   onSave: (field: CalculatedField) => void
   existingMeasures: CalculatedField[]
   existingDerivedFields: CalculatedField[]
+  metadata: DatasetMetadataResponse | null
 }
 
 // Draggable palette item component
@@ -368,11 +370,13 @@ function ExpressionPalette({
   setSearchQuery,
   existingMeasures,
   existingDerivedFields,
+  metadata,
 }: {
   searchQuery: string
   setSearchQuery: (q: string) => void
   existingMeasures: CalculatedField[]
   existingDerivedFields: CalculatedField[]
+  metadata: DatasetMetadataResponse | null
 }) {
   const [expandedTables, setExpandedTables] = useState<Set<string>>(new Set())
 
@@ -386,13 +390,24 @@ function ExpressionPalette({
     setExpandedTables(newExpanded)
   }
 
+  const availableFields = useMemo(() => getFieldsForDerivedExpression(metadata), [metadata])
+  const fieldsByTable = useMemo(() => {
+    const grouped = new Map<string, typeof availableFields>()
+    availableFields.forEach(field => {
+      const current = grouped.get(field.tableId) ?? []
+      current.push(field)
+      grouped.set(field.tableId, current)
+    })
+    return Array.from(grouped.entries()).map(([tableId, fields]) => ({ tableId, fields }))
+  }, [availableFields])
+
   const filteredTables = useMemo(() => {
-    if (!searchQuery) return schemaData
-    return schemaData.filter(table =>
-      table.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      table.columns.some(col => col.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    )
-  }, [searchQuery])
+    if (!searchQuery) return fieldsByTable
+    const term = searchQuery.toLowerCase()
+    return fieldsByTable.filter(table =>
+      table.tableId.toLowerCase().includes(term) ||
+      table.fields.some(col => col.displayName.toLowerCase().includes(term)))
+  }, [searchQuery, fieldsByTable])
 
   return (
     <div className="h-full flex flex-col border-r">
@@ -441,29 +456,29 @@ function ExpressionPalette({
         <ScrollArea className="flex-1 min-h-0">
           <TabsContent value="fields" className="m-0 p-2">
             {filteredTables.map((table) => (
-              <div key={table.name} className="mb-1">
+              <div key={table.tableId} className="mb-1">
                 <button
-                  onClick={() => toggleTable(table.name)}
+                  onClick={() => toggleTable(table.tableId)}
                   className="w-full flex items-center gap-1.5 px-1.5 py-1 text-sm hover:bg-accent rounded-md"
                 >
-                  {expandedTables.has(table.name) ? (
+                  {expandedTables.has(table.tableId) ? (
                     <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                   ) : (
                     <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
                   )}
                   <Table2 className="h-3.5 w-3.5 text-muted-foreground" />
-                  <span className="truncate">{table.name}</span>
+                  <span className="truncate">{table.tableId}</span>
                 </button>
-                {expandedTables.has(table.name) && (
+                {expandedTables.has(table.tableId) && (
                   <div className="ml-4 space-y-0.5">
-                    {table.columns.map((col) => (
+                    {table.fields.map((col) => (
                       <DraggablePaletteItem
-                        key={`${table.name}.${col.name}`}
-                        id={`${table.name}.${col.name}`}
+                        key={col.fieldId}
+                        id={col.fieldId}
                         type="column"
-                        label={col.name}
-                        sublabel={table.name}
-                        badge={col.dataType}
+                        label={col.fieldId}
+                        sublabel={table.tableId}
+                        badge={col.sqlDataType || col.dataType}
                         badgeColor="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
                       />
                     ))}
@@ -575,11 +590,18 @@ export function DerivedFieldExpressionBuilder({
   onSave,
   existingMeasures,
   existingDerivedFields,
+  metadata,
 }: DerivedFieldExpressionBuilderProps) {
   const [name, setName] = useState('')
   const [tokens, setTokens] = useState<ExpressionToken[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [activeId, setActiveId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (open) {
+      console.log('Derived builder fields', getFieldsForDerivedExpression(metadata).map(f => f.fieldId))
+    }
+  }, [open, metadata])
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -790,12 +812,13 @@ export function DerivedFieldExpressionBuilder({
             {/* Left Palette - 35% */}
             {/* <div className="w-[35%] min-h-0 overflow-hidden"> */}
             <div className="w-[40%] min-h-0 overflow-hidden">
-              <ExpressionPalette
-                searchQuery={searchQuery}
-                setSearchQuery={setSearchQuery}
-                existingMeasures={existingMeasures}
-                existingDerivedFields={existingDerivedFields}
-              />
+        <ExpressionPalette
+          searchQuery={searchQuery}
+          setSearchQuery={setSearchQuery}
+          existingMeasures={existingMeasures}
+          existingDerivedFields={existingDerivedFields}
+          metadata={metadata}
+        />
             </div>
 
             {/* Right Expression Builder - 65% */}
