@@ -19,7 +19,13 @@ public static partial class SemanticExpressionCompiler
         });
 
         return DivisionExpression().Replace(expression, match =>
-            $"{match.Groups[1].Value} / NULLIF({match.Groups[2].Value}, 0)");
+        {
+            var left = match.Groups[1].Value.Trim();
+            var right = match.Groups[2].Value.Trim();
+            if (right.StartsWith("NULLIF(", StringComparison.OrdinalIgnoreCase)) return $"{left} / {right}";
+            if (decimal.TryParse(right, out var constant) && constant != 0) return $"{left} / {right}";
+            return $"{left} / NULLIF({right}, 0)";
+        });
     }
 
     public static string CompileDerivedExpression(string expression, SemanticModel model)

@@ -54,6 +54,7 @@ builder.Services.AddScoped<IQueryExecutor, SqlServerQueryExecutor>();
 builder.Services.AddScoped<ReportQueryService>();
 builder.Services.AddScoped<GrainValidationService>();
 builder.Services.AddScoped<DatasetMetadataService>();
+builder.Services.AddScoped<ExpressionValidationService>();
 
 var app = builder.Build();
 
