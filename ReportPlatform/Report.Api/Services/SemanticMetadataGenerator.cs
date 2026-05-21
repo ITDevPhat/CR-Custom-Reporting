@@ -75,22 +75,20 @@ public sealed partial class SemanticMetadataGenerator
 
         var metrics = fields
             .Where(field => factTableIds.Contains(field.TableId) && field.Role == "measure_candidate")
-            .Select(field =>
-            {
-                var aggregation = InferDefaultAggregation(field.PhysicalColumn);
-                return new SemanticMetric
+            .SelectMany(field => SupportedAggregations()
+                .Where(aggregation => AggregationAllowedForDataType(aggregation, field.DataType))
+                .Select(aggregation => new SemanticMetric
                 {
                     MetricId = $"metric.{aggregation.ToLowerInvariant()}_{NormalizeId(field.TableId)}_{NormalizeId(field.PhysicalColumn)}",
                     DisplayName = BuildMetricDisplayName(field.DisplayName, aggregation),
                     Formula = $"{aggregation}([{field.FieldId}])",
                     BaseTableId = field.TableId,
-                    AggregationBehavior = aggregation == "AVG" ? "non_additive" : "additive",
-                    DataType = field.DataType,
-                    Format = InferFormat(field.PhysicalColumn, field.DataType),
+                    AggregationBehavior = aggregation is "AVG" or "COUNT_DISTINCT" ? "non_additive" : "additive",
+                    DataType = aggregation.StartsWith("COUNT", StringComparison.OrdinalIgnoreCase) ? "integer" : field.DataType,
+                    Format = aggregation.StartsWith("COUNT", StringComparison.OrdinalIgnoreCase) ? "integer" : InferFormat(field.PhysicalColumn, field.DataType),
                     IsHidden = false,
                     IsDraggable = true
-                };
-            })
+                }))
             .ToList();
 
         return new SemanticModel
@@ -432,16 +430,37 @@ public sealed partial class SemanticMetadataGenerator
 
     private static string BuildMetricDisplayName(string fieldName, string aggregation)
     {
-        if (aggregation == "AVG")
+        return aggregation switch
         {
-            return $"Average {fieldName}";
+            "SUM" => fieldName.Contains("Sales", StringComparison.OrdinalIgnoreCase) ||
+                     fieldName.Contains("Profit", StringComparison.OrdinalIgnoreCase) ||
+                     fieldName.Contains("Amount", StringComparison.OrdinalIgnoreCase)
+                        ? $"Total {fieldName}"
+                        : $"Sum {fieldName}",
+            "AVG" => $"Average {fieldName}",
+            "MIN" => $"Min {fieldName}",
+            "MAX" => $"Max {fieldName}",
+            "COUNT" => $"Count {fieldName}",
+            "COUNT_DISTINCT" => $"Distinct {fieldName} Count",
+            _ => $"{aggregation} {fieldName}"
+        };
+    }
+
+    private static string[] SupportedAggregations() => ["SUM", "AVG", "MIN", "MAX", "COUNT", "COUNT_DISTINCT"];
+
+    private static bool AggregationAllowedForDataType(string aggregation, string dataType)
+    {
+        if (aggregation is "COUNT" or "COUNT_DISTINCT")
+        {
+            return true;
         }
 
-        return fieldName.Contains("Sales", StringComparison.OrdinalIgnoreCase) ||
-            fieldName.Contains("Profit", StringComparison.OrdinalIgnoreCase) ||
-            fieldName.Contains("Amount", StringComparison.OrdinalIgnoreCase)
-            ? $"Total {fieldName}"
-            : $"Sum {fieldName}";
+        if (aggregation is "SUM" or "AVG")
+        {
+            return IsNumeric(dataType);
+        }
+
+        return true;
     }
 
     private static string RemoveKnownPrefix(string value)
