@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Report.Contracts.Requests;
+using Report.Metadata.Models;
 using Report.QueryEngine.Validation;
 using static Report.QueryEngine.Tests.QueryEngineTestHarness;
 
@@ -324,6 +325,85 @@ public sealed class SqlGenerationTests
 
         act.Should().Throw<SemanticQueryValidationException>()
             .Where(ex => ex.Errors.Values.SelectMany(errors => errors).Any(error => error.Contains("No relationship", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void MultipleActiveRelationshipsSamePair_ShouldFailAmbiguous()
+    {
+        var harness = new QueryEngineTestHarness(model =>
+        {
+            model.Relationships.Add(new SemanticRelationship
+            {
+                DatasetId = "sales",
+                RelationshipId = "rel_date_ship",
+                FromTableId = "FactSales",
+                FromColumn = "ShipDateKey",
+                ToTableId = "DimDate",
+                ToColumn = "DateKey",
+                Cardinality = "N:1",
+                JoinType = "INNER",
+                CrossFilterDirection = "single",
+                IsActive = true,
+                IsPrimary = true,
+                Source = "database_fk",
+                Confidence = 1.0m,
+                Status = "active"
+            });
+            return model;
+        });
+
+        var act = () => harness.Compile(Request(rows: ["dimdate.yearnumber"], values: ["metric.total_sales"]));
+        act.Should().Throw<SemanticQueryValidationException>()
+            .Where(ex => ex.Errors.TryGetValue("errorCode", out var code) && code.Contains("AMBIGUOUS_RELATIONSHIP_PATH"));
+    }
+
+    [Fact]
+    public void MultiHopProductCategoryPath_ShouldCompileExpectedJoins()
+    {
+        var harness = BuildProductHierarchyHarness();
+        var result = harness.Compile(Request(rows: ["dimproductcategory.englishproductcategoryname"], values: ["metric.total_sales"]));
+
+        AssertSqlContains(result.Sql.Sql, "JOIN DimProduct p ON f.ProductKey = p.ProductKey");
+        AssertSqlContains(result.Sql.Sql, "JOIN DimProductSubcategory");
+        AssertSqlContains(result.Sql.Sql, "JOIN DimProductCategory");
+    }
+
+    [Fact]
+    public void JoinDeduplication_ShouldJoinDimProductOnce()
+    {
+        var harness = BuildProductHierarchyHarness();
+        var result = harness.Compile(Request(
+            rows: ["dimproduct.category", "dimproductcategory.englishproductcategoryname"],
+            values: ["metric.total_sales"]));
+
+        QueryEngineTestHarness.NormalizeSql(result.Sql.Sql).Split("JOIN DimProduct ").Length.Should().Be(2);
+    }
+
+    [Fact]
+    public void NoPath_ShouldFailWithNoRelationshipPathCode()
+    {
+        var harness = new QueryEngineTestHarness(model =>
+        {
+            model.Relationships.RemoveAll(r => r.ToTableId == "DimProduct");
+            return model;
+        });
+
+        var act = () => harness.Compile(Request(rows: ["dimproduct.category"], values: ["metric.total_sales"]));
+        act.Should().Throw<SemanticQueryValidationException>()
+            .Where(ex => ex.Errors.TryGetValue("errorCode", out var code) && code.Contains("NO_RELATIONSHIP_PATH"));
+    }
+
+    private static QueryEngineTestHarness BuildProductHierarchyHarness()
+    {
+        return new QueryEngineTestHarness(model =>
+        {
+            model.Tables.Add(new SemanticTable { TableId = "DimProductSubcategory", DisplayName = "ProductSubcategory", TableType = "dimension", Grain = "product_subcategory", PhysicalSchema = "dbo", PhysicalTable = "DimProductSubcategory" });
+            model.Tables.Add(new SemanticTable { TableId = "DimProductCategory", DisplayName = "ProductCategory", TableType = "dimension", Grain = "product_category", PhysicalSchema = "dbo", PhysicalTable = "DimProductCategory" });
+            model.Fields.Add(new SemanticField { DatasetId = "sales", FieldId = "dimproductcategory.englishproductcategoryname", TableId = "DimProductCategory", PhysicalTable = "DimProductCategory", PhysicalColumn = "EnglishProductCategoryName", DisplayName = "EnglishProductCategoryName", DataType = "nvarchar", Role = "dimension", Grain = "product_category", SemanticType = "category", DefaultAggregation = "none", Format = "general", IsHidden = false, IsDraggable = true });
+            model.Relationships.Add(new SemanticRelationship { DatasetId = "sales", RelationshipId = "rel_subcat", FromTableId = "DimProduct", FromColumn = "ProductSubcategoryKey", ToTableId = "DimProductSubcategory", ToColumn = "ProductSubcategoryKey", JoinType = "INNER", Cardinality = "N:1", CrossFilterDirection = "single", IsActive = true, IsPrimary = true, Source = "database_fk", Confidence = 1.0m, Status = "active" });
+            model.Relationships.Add(new SemanticRelationship { DatasetId = "sales", RelationshipId = "rel_cat", FromTableId = "DimProductSubcategory", FromColumn = "ProductCategoryKey", ToTableId = "DimProductCategory", ToColumn = "ProductCategoryKey", JoinType = "INNER", Cardinality = "N:1", CrossFilterDirection = "single", IsActive = true, IsPrimary = true, Source = "database_fk", Confidence = 1.0m, Status = "active" });
+            return model;
+        });
     }
 
     [Fact]

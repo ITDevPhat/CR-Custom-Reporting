@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Check, Edit, Plus, RefreshCw, Search, Trash2, Zap } from 'lucide-react'
+import { AlertTriangle, Edit, Plus, RefreshCw, Search, Trash2, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -35,6 +35,7 @@ import { previewTable, type SqlServerConnectionRequest, type TablePreviewRespons
 import { type DatasetMetadataResponse, type MetadataRelationship, type MetadataTable } from '@/lib/report-metadata-api'
 import {
   autodetectRelationships,
+  activateRelationship,
   createRelationship,
   deleteRelationship,
   getRelationships,
@@ -255,8 +256,7 @@ function RelationshipEditor({
                 </Select>
               </div>
               <div className="space-y-3 pt-7">
-                <label className="flex items-center gap-2 text-sm"><Checkbox checked={draft.isActive} onCheckedChange={(checked) => setDraft((current) => ({ ...current, isActive: checked === true }))} /> Active</label>
-                <label className="flex items-center gap-2 text-sm"><Checkbox checked={draft.isPrimary} onCheckedChange={(checked) => setDraft((current) => ({ ...current, isPrimary: checked === true }))} /> Primary</label>
+                <label className="flex items-center gap-2 text-sm"><Checkbox checked={draft.isActive} onCheckedChange={(checked) => setDraft((current) => ({ ...current, isActive: checked === true, isPrimary: checked === true }))} /> Make this relationship active</label>
               </div>
             </div>
           </div>
@@ -307,6 +307,7 @@ export function ManageRelationshipsModal({
     return relationships.filter((relationship) =>
       Object.values(relationship).some((value) => String(value ?? '').toLowerCase().includes(term)))
   }, [relationships, search])
+  const groupedConflicts = useMemo(() => relationships.filter(r => r.groupConflictCount > 1), [relationships])
 
   const refreshAll = async () => {
     await loadRelationships()
@@ -350,6 +351,16 @@ export function ManageRelationshipsModal({
       throw err
     }
   }
+  const handleMakeActive = async (rel: MetadataRelationship) => {
+    const currentActive = relationships.find(r => r.relationshipGroupKey === rel.relationshipGroupKey && r.isActive)
+    if (currentActive && currentActive.relationshipId !== rel.relationshipId) {
+      const ok = window.confirm(`Only one active relationship is allowed between ${rel.fromTableId} and ${rel.toTableId}. Activating this relationship will deactivate the current active relationship: ${currentActive.fromColumn} -> ${currentActive.toColumn}. Continue?`)
+      if (!ok) return
+    }
+    await activateRelationship(datasetId, rel.relationshipId)
+    toast.success('Relationship activated')
+    await refreshAll()
+  }
 
   const selectedOne = relationships.find((rel) => selectedIds.has(rel.relationshipId)) ?? null
 
@@ -370,6 +381,11 @@ export function ManageRelationshipsModal({
               <Input className="pl-8 h-8" placeholder="Filter relationships..." value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
           </div>
+          {groupedConflicts.length > 0 && (
+            <div className="mx-6 my-3 p-3 border rounded-md bg-amber-50 text-amber-900 text-sm">
+              <div className="font-medium">Role-playing relationships detected. Only one active relationship can be used as the default path for each table pair.</div>
+            </div>
+          )}
           <ScrollArea className="flex-1 min-h-0 px-6">
             <Table>
               <TableHeader className="sticky top-0 bg-background z-10">
@@ -379,6 +395,7 @@ export function ManageRelationshipsModal({
                   <TableHead className="bg-background">Relationship</TableHead>
                   <TableHead className="bg-background">To</TableHead>
                   <TableHead className="bg-background">Status</TableHead>
+                  <TableHead className="bg-background">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -400,6 +417,11 @@ export function ManageRelationshipsModal({
                       <Badge className={cn('text-[10px]', rel.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700')}>
                         {rel.isActive ? 'Active' : 'Inactive'}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Button size="sm" variant="outline" disabled={rel.isActive} onClick={() => void handleMakeActive(rel)}>
+                        {rel.isActive ? 'Already active' : 'Make active'}
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}

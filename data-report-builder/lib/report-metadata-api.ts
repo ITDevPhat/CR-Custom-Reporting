@@ -70,6 +70,9 @@ export type MetadataRelationship = {
   confidence: number
   status: string
   warning: string | null
+  relationshipGroupKey: string
+  groupConflictCount: number
+  groupActiveCount: number
 }
 
 export type DatasetMetadataResponse = {

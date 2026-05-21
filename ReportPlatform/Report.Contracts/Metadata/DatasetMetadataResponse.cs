@@ -86,4 +86,7 @@ public class MetadataRelationshipDto
     public decimal Confidence { get; init; }
     public string Status { get; init; } = "";
     public string? Warning { get; init; }
+    public string RelationshipGroupKey { get; init; } = "";
+    public int GroupConflictCount { get; init; }
+    public int GroupActiveCount { get; init; }
 }

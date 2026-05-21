@@ -8,6 +8,7 @@ public sealed class JoinPlan
 
 public sealed class JoinDef
 {
+    public string RelationshipId { get; init; } = "";
     public string FromTableId { get; init; } = "";
     public string ToTableId { get; init; } = "";
     public string JoinType { get; init; } = "";
