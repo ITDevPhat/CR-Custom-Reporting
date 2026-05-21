@@ -23,8 +23,8 @@ import { toast } from 'sonner'
 import {
   type CalculatedField,
   type MetricFunction,
-  schemaData,
 } from '@/lib/schema-data'
+import { type MetadataField, type MetadataTable } from '@/lib/report-metadata-api'
 
 const metricFunctions: MetricFunction[] = ['SUM', 'AVG', 'MIN', 'MAX', 'COUNT', 'COUNT DISTINCT']
 
@@ -111,20 +111,26 @@ interface CreateMeasureModalProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onSave: (field: CalculatedField) => void
+  tables: MetadataTable[]
+  disabled?: boolean
 }
 
-export function CreateMeasureModal({ open, onOpenChange, onSave }: CreateMeasureModalProps) {
+export function CreateMeasureModal({ open, onOpenChange, onSave, tables, disabled = false }: CreateMeasureModalProps) {
   const [name, setName] = useState('')
   const [aggregationFunction, setAggregationFunction] = useState<MetricFunction>('SUM')
-  const [sourceTable, setSourceTable] = useState('FactSales')
-  const [sourceColumn, setSourceColumn] = useState('SalesAmount')
+  const [sourceTable, setSourceTable] = useState('')
+  const [sourceColumn, setSourceColumn] = useState('')
 
-  const selectedTable = schemaData.find(t => t.name === sourceTable)
-  const availableColumns = selectedTable?.columns || []
+  const selectedTable = tables.find(t => t.tableId === sourceTable)
+  const availableColumns = (selectedTable?.fields || []).filter((f: MetadataField) => !f.isHidden)
 
   const handleSave = () => {
     if (!name.trim()) {
       toast.error('Please enter a measure name')
+      return
+    }
+    if (!sourceTable || !sourceColumn) {
+      toast.error('Connect a source before creating calculated fields.')
       return
     }
 
@@ -140,8 +146,8 @@ export function CreateMeasureModal({ open, onOpenChange, onSave }: CreateMeasure
     onSave(newMeasure)
     setName('')
     setAggregationFunction('SUM')
-    setSourceTable('FactSales')
-    setSourceColumn('SalesAmount')
+    setSourceTable('')
+    setSourceColumn('')
     onOpenChange(false)
     toast.success(`Measure "${name}" created`)
   }
@@ -187,18 +193,18 @@ export function CreateMeasureModal({ open, onOpenChange, onSave }: CreateMeasure
             <Label htmlFor="sourceTable">Source Table</Label>
             <Select value={sourceTable} onValueChange={(v) => {
               setSourceTable(v)
-              const table = schemaData.find(t => t.name === v)
-              if (table && table.columns.length > 0) {
-                setSourceColumn(table.columns[0].name)
+              const table = tables.find(t => t.tableId === v)
+              if (table && table.fields.length > 0) {
+                setSourceColumn(table.fields[0].displayName)
               }
             }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {schemaData.map((table) => (
-                  <SelectItem key={table.name} value={table.name}>
-                    {table.name}
+                {tables.map((table) => (
+                  <SelectItem key={table.tableId} value={table.tableId}>
+                    {table.displayName}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -213,8 +219,8 @@ export function CreateMeasureModal({ open, onOpenChange, onSave }: CreateMeasure
               </SelectTrigger>
               <SelectContent>
                 {availableColumns.map((col) => (
-                  <SelectItem key={col.name} value={col.name}>
-                    {col.name}
+                  <SelectItem key={col.fieldId} value={col.displayName}>
+                    {col.displayName}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -226,7 +232,7 @@ export function CreateMeasureModal({ open, onOpenChange, onSave }: CreateMeasure
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={handleSave}>Create Measure</Button>
+          <Button onClick={handleSave} disabled={disabled}>Create Measure</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

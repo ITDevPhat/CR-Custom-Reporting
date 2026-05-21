@@ -203,28 +203,14 @@ export default function ReportBuilderPage() {
         setConnectionId(response.connectionId || null)
 
         if (process.env.NODE_ENV === 'development') {
-          response.tables.forEach(table => {
-            console.log(
-              `[metadata] ${table.tableId}: ${table.fields.length} fields`,
-              table.fields.map(field => field.displayName)
-            )
-
-            if (table.fields.length === 0) {
-              console.warn(`[metadata] ${table.tableId} has no nested fields in metadata response`)
-            }
-          })
-
+          console.log('Active dataset', datasetId)
           console.table(response.tables.flatMap(table =>
             table.fields.map(field => ({
               fieldId: field.fieldId,
               displayName: field.displayName,
-              physicalColumn: field.physicalColumn,
-              dataType: field.dataType,
-              sqlDataType: field.sqlDataType,
+              tableId: field.tableId,
               role: field.role,
-              isHidden: field.isHidden,
-              isDraggable: field.isDraggable,
-              defaultAggregation: field.defaultAggregation,
+              sqlDataType: field.sqlDataType,
             }))
           ))
         }
@@ -600,6 +586,10 @@ export default function ReportBuilderPage() {
   }, [buildVisualQueryRequest, reportId, reportTitle, reportDescription])
 
   const handleDatasetLoaded = useCallback((dataset: LoadedDataset) => {
+    if (datasetId && dataset.datasetId !== datasetId && selectedFields.length > 0) {
+      const confirmed = window.confirm('Switching source will clear the current report configuration.')
+      if (!confirmed) return
+    }
     setDatasetId(dataset.datasetId)
     setConnectionId(dataset.connectionId)
     setSourceConnection(dataset.connection)
@@ -611,7 +601,10 @@ export default function ReportBuilderPage() {
     setAppliedSorts([])
     setReportFilters([])
     setReportSorts([])
-  }, [])
+    setResult(null)
+    setRuntimePayload(null)
+    setCalculatedFields([])
+  }, [datasetId, selectedFields.length])
 
   const hasDataset = Boolean(datasetId && metadata)
 
