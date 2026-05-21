@@ -38,6 +38,9 @@ export interface SelectedField {
   grain?: string
   baseTableId?: string
   aggregationBehavior?: string
+  placement?: 'rows' | 'values'
+  aggregation?: null | 'SUM' | 'AVG' | 'COUNT' | 'COUNT_DISTINCT' | 'MIN' | 'MAX'
+  sourceFieldId?: string
   kind: 'field' | 'metric' | 'column' | 'measure' | 'derived'
   calculatedField?: CalculatedField
 }

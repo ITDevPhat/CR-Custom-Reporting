@@ -117,7 +117,7 @@ public sealed class SemanticMetadataGeneratorTests
     }
 
     [Fact]
-    public void KeyColumns_ShouldBeIdentifiersAndNotDraggable()
+    public void KeyColumns_ShouldBeIdentifiersAndDraggableAsRawFields()
     {
         var model = GenerateSuperstoreLikeModel();
 
@@ -127,7 +127,7 @@ public sealed class SemanticMetadataGeneratorTests
             field.Role.Should().Be("key");
             field.SemanticType.Should().Be("identifier");
             field.DefaultAggregation.Should().Be("none");
-            field.IsDraggable.Should().BeFalse();
+            field.IsDraggable.Should().BeTrue();
         }
     }
 
@@ -142,7 +142,7 @@ public sealed class SemanticMetadataGeneratorTests
         customerKey.IsForeignKey.Should().BeTrue();
         customerKey.ParticipatesInRelationship.Should().BeTrue();
         customerKey.Role.Should().Be("key");
-        customerKey.IsDraggable.Should().BeFalse();
+        customerKey.IsDraggable.Should().BeTrue();
         customerKey.ClassificationReason.Should().Be("SQL Server foreign key");
     }
 

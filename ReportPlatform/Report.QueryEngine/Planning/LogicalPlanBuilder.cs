@@ -67,11 +67,13 @@ public sealed class LogicalPlanBuilder
                 Condition = $"{aliases[j.FromTableId]}.{SqlIdentifier.QuoteColumn(j.FromColumn)} = {aliases[j.ToTableId]}.{SqlIdentifier.QuoteColumn(j.ToColumn)}"
             }).ToList();
 
-        var groupBy = context.GroupFields
-            .Select(f => f.IsDerived && f.Expression is not null
-                ? ApplyAliases(SemanticExpressionCompiler.CompileDerivedExpression(f.Expression, model), aliases)
-                : $"{aliases[f.TableId]}.{SqlIdentifier.QuoteColumn(f.PhysicalColumn)}")
-            .ToList();
+        var groupBy = measures.Count > 0 && context.GroupFields.Count > 0
+            ? context.GroupFields
+                .Select(f => f.IsDerived && f.Expression is not null
+                    ? ApplyAliases(SemanticExpressionCompiler.CompileDerivedExpression(f.Expression, model), aliases)
+                    : $"{aliases[f.TableId]}.{SqlIdentifier.QuoteColumn(f.PhysicalColumn)}")
+                .ToList()
+            : [];
 
         return new LogicalQueryPlan
         {

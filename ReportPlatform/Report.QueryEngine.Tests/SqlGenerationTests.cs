@@ -10,16 +10,35 @@ public sealed class SqlGenerationTests
     private readonly QueryEngineTestHarness _harness = new();
 
     [Fact]
-    public void DimensionOnly_ShouldGenerateGroupedDimensionSql()
+    public void DimensionOnly_ShouldGenerateRawDimensionSql()
     {
         var result = _harness.Compile(Request(rows: ["dimcustomer.customername"]));
 
         result.LogicalPlan.BaseTableId.Should().Be("DimCustomer");
         AssertSqlContains(result.Sql.Sql, "FROM DimCustomer c");
         AssertSqlContains(result.Sql.Sql, "c.CustomerName AS CustomerName");
-        AssertSqlContains(result.Sql.Sql, "GROUP BY c.CustomerName");
+        AssertSqlDoesNotContain(result.Sql.Sql, "GROUP BY");
         AssertSqlDoesNotContain(result.Sql.Sql, "FactSales");
         AssertSqlDoesNotContain(result.Sql.Sql, "SUM(");
+    }
+
+    [Fact]
+    public void RawNumericFieldInRows_ShouldNotSum()
+    {
+        var result = _harness.Compile(Request(rows: ["factsales.quantity"], limit: 50));
+
+        AssertSqlContains(result.Sql.Sql, "SELECT TOP (50) f.Quantity AS Quantity FROM FactSales f");
+        AssertSqlDoesNotContain(result.Sql.Sql, "SUM(f.Quantity)");
+        AssertSqlDoesNotContain(result.Sql.Sql, "GROUP BY");
+    }
+
+    [Fact]
+    public void MeasureCandidateDroppedToValues_ShouldUseMetric()
+    {
+        var result = _harness.Compile(Request(values: ["metric.sum_factsales_quantity"], limit: 50));
+
+        AssertSqlContains(result.Sql.Sql, "SELECT TOP (50) SUM(f.Quantity) AS SumQuantity FROM FactSales f");
+        AssertSqlDoesNotContain(result.Sql.Sql, "GROUP BY");
     }
 
     [Fact]
@@ -34,6 +53,36 @@ public sealed class SqlGenerationTests
     }
 
     [Fact]
+    public void NoFilter_ShouldNotEmitWhere()
+    {
+        var result = _harness.Compile(Request(rows: ["dimcustomer.customername"], values: ["metric.total_sales"]));
+
+        AssertSqlDoesNotContain(result.Sql.Sql, "WHERE");
+    }
+
+    [Fact]
+    public void NoSortWithLimitOnly_ShouldUseTopWithoutOrderByFallback()
+    {
+        var result = _harness.Compile(Request(rows: ["dimcustomer.customername"], limit: 50));
+
+        AssertSqlContains(result.Sql.Sql, "SELECT TOP (50) c.CustomerName AS CustomerName FROM DimCustomer c");
+        AssertSqlDoesNotContain(result.Sql.Sql, "ORDER BY");
+        AssertSqlDoesNotContain(result.Sql.Sql, "OFFSET");
+        AssertSqlDoesNotContain(result.Sql.Sql, "FETCH NEXT");
+    }
+
+    [Fact]
+    public void NoMetric_ShouldNotEmitGroupBy()
+    {
+        var result = _harness.Compile(Request(rows: ["dimcustomer.customername", "factsales.quantity"]));
+
+        AssertSqlContains(result.Sql.Sql, "c.CustomerName AS CustomerName");
+        AssertSqlContains(result.Sql.Sql, "f.Quantity AS Quantity");
+        AssertSqlDoesNotContain(result.Sql.Sql, "GROUP BY");
+        AssertSqlDoesNotContain(result.Sql.Sql, "SUM(f.Quantity)");
+    }
+
+    [Fact]
     public void DimensionMetric_ShouldJoinDimensionAndGroup()
     {
         var result = _harness.Compile(Request(rows: ["dimcustomer.customername"], values: ["metric.total_sales"]));
@@ -43,6 +92,15 @@ public sealed class SqlGenerationTests
         AssertSqlContains(result.Sql.Sql, "INNER JOIN DimCustomer c ON f.CustomerKey = c.CustomerKey");
         AssertSqlContains(result.Sql.Sql, "c.CustomerName AS CustomerName");
         AssertSqlContains(result.Sql.Sql, "SUM(f.SalesAmount) AS TotalSales");
+        AssertSqlContains(result.Sql.Sql, "GROUP BY c.CustomerName");
+    }
+
+    [Fact]
+    public void DimensionMetric_ShouldRequireGroupBy()
+    {
+        var result = _harness.Compile(Request(rows: ["dimcustomer.customername"], values: ["metric.sum_factsales_quantity"]));
+
+        AssertSqlContains(result.Sql.Sql, "SUM(f.Quantity) AS SumQuantity");
         AssertSqlContains(result.Sql.Sql, "GROUP BY c.CustomerName");
     }
 
@@ -142,6 +200,38 @@ public sealed class SqlGenerationTests
         AssertSqlContains(result.Sql.Sql, "HAVING SUM(f.SalesAmount) > @p0");
         AssertSqlDoesNotContain(result.Sql.Sql, "WHERE SUM(f.SalesAmount) > @p0");
         result.Sql.Parameters.Should().ContainKey("p0").WhoseValue.Should().Be(10000);
+    }
+
+    [Fact]
+    public void RawFilter_ShouldCompileToWhere()
+    {
+        var result = _harness.Compile(Request(
+            rows: ["dimcustomer.customername"],
+            values: ["metric.total_sales"],
+            filters:
+            [
+                new FilterRequest { Field = "factsales.quantity", Operator = ">=", Value = 10, Scope = "visual" }
+            ]));
+
+        AssertSqlContains(result.Sql.Sql, "WHERE f.Quantity >= @p0");
+        AssertSqlDoesNotContain(result.Sql.Sql, "HAVING f.Quantity >= @p0");
+        result.Sql.Parameters.Should().ContainKey("p0").WhoseValue.Should().Be(10);
+    }
+
+    [Fact]
+    public void MetricFilter_ShouldCompileToHaving()
+    {
+        var result = _harness.Compile(Request(
+            rows: ["dimcustomer.customername"],
+            values: ["metric.sum_factsales_quantity"],
+            filters:
+            [
+                new FilterRequest { Field = "metric.sum_factsales_quantity", Operator = ">=", Value = 10, Scope = "visual" }
+            ]));
+
+        AssertSqlContains(result.Sql.Sql, "HAVING SUM(f.Quantity) >= @p0");
+        AssertSqlDoesNotContain(result.Sql.Sql, "WHERE SUM(f.Quantity) >= @p0");
+        result.Sql.Parameters.Should().ContainKey("p0").WhoseValue.Should().Be(10);
     }
 
     [Fact]

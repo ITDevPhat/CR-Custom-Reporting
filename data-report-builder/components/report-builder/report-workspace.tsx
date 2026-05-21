@@ -59,6 +59,7 @@ import {
 interface ReportWorkspaceProps {
   selectedFields: SelectedField[]
   onRemoveField: (id: string) => void
+  onUpdateField: (id: string, patch: Partial<SelectedField>) => void
   previewLimit: number
   onPreviewLimitChange: (limit: number) => void
   appliedFilters: AppliedFilter[]
@@ -133,9 +134,10 @@ function getKindIcon(kind: SelectedField['kind']) {
 interface SortableFieldChipProps {
   field: SelectedField
   onRemove: (id: string) => void
+  onUpdate: (id: string, patch: Partial<SelectedField>) => void
 }
 
-function SortableFieldChip({ field, onRemove }: SortableFieldChipProps) {
+function SortableFieldChip({ field, onRemove, onUpdate }: SortableFieldChipProps) {
   const {
     attributes,
     listeners,
@@ -149,6 +151,8 @@ function SortableFieldChip({ field, onRemove }: SortableFieldChipProps) {
     transform: CSS.Transform.toString(transform),
     transition,
   }
+
+  const isMeasureCandidate = field.kind === 'field' && field.role === 'measure_candidate'
 
   const getSourceInfo = () => {
     switch (field.kind) {
@@ -207,6 +211,29 @@ function SortableFieldChip({ field, onRemove }: SortableFieldChipProps) {
                 {field.kind}
               </Badge>
             )}
+            {isMeasureCandidate && (
+              <select
+                value={field.aggregation ?? ''}
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
+                onChange={(event) => {
+                  const aggregation = event.target.value as SelectedField['aggregation'] | ''
+                  onUpdate(field.id, aggregation
+                    ? { aggregation, placement: 'values' }
+                    : { aggregation: null, placement: 'rows' })
+                }}
+                className="h-6 rounded border border-border bg-background px-1 text-[10px] text-foreground"
+                aria-label={`Aggregation for ${field.columnName}`}
+              >
+                <option value="">Don't summarize</option>
+                <option value="SUM">Sum</option>
+                <option value="AVG">Average</option>
+                <option value="MIN">Min</option>
+                <option value="MAX">Max</option>
+                <option value="COUNT">Count</option>
+                <option value="COUNT_DISTINCT">Count distinct</option>
+              </select>
+            )}
             <button
               onClick={() => onRemove(field.id)}
               className="ml-1 text-muted-foreground hover:text-destructive transition-colors"
@@ -231,7 +258,15 @@ function SortableFieldChip({ field, onRemove }: SortableFieldChipProps) {
   )
 }
 
-function DropZone({ selectedFields, onRemoveField }: { selectedFields: SelectedField[], onRemoveField: (id: string) => void }) {
+function DropZone({
+  selectedFields,
+  onRemoveField,
+  onUpdateField,
+}: {
+  selectedFields: SelectedField[]
+  onRemoveField: (id: string) => void
+  onUpdateField: (id: string, patch: Partial<SelectedField>) => void
+}) {
   const { setNodeRef, isOver } = useDroppable({
     id: 'report-dropzone',
   })
@@ -265,6 +300,7 @@ function DropZone({ selectedFields, onRemoveField }: { selectedFields: SelectedF
                     key={field.id}
                     field={field}
                     onRemove={onRemoveField}
+                    onUpdate={onUpdateField}
                   />
                 ))}
               </div>
@@ -705,6 +741,7 @@ function ConfigurationSidebar({
 export function ReportWorkspace({ 
   selectedFields, 
   onRemoveField, 
+  onUpdateField,
   previewLimit, 
   onPreviewLimitChange,
   appliedFilters,
@@ -735,7 +772,7 @@ export function ReportWorkspace({
     <div className="h-full flex flex-col bg-muted/30 overflow-hidden">
       <ScrollArea className="flex-1 min-h-0">
         <div className="p-4 space-y-4">
-          <DropZone selectedFields={selectedFields} onRemoveField={onRemoveField} />
+          <DropZone selectedFields={selectedFields} onRemoveField={onRemoveField} onUpdateField={onUpdateField} />
           <ReportPreviewTable
             selectedFields={selectedFields}
             previewLimit={previewLimit}

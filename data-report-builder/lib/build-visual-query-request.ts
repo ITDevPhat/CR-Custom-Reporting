@@ -11,6 +11,8 @@ export type SelectedReportItem = {
   dataType: string
   isHidden?: boolean
   isDraggable?: boolean
+  placement?: 'rows' | 'values'
+  aggregation?: null | 'SUM' | 'AVG' | 'COUNT' | 'COUNT_DISTINCT' | 'MIN' | 'MAX'
 }
 
 export type BuildVisualQueryRequestState = {
@@ -39,20 +41,27 @@ export function buildVisualQueryRequest(state: BuildVisualQueryRequestState): Vi
   const selected = state.selectedFields
     .map((field) => toSelectedReportItem(field, lookup))
     .filter((field): field is SelectedReportItem => Boolean(field))
-    .filter((field) => !field.isHidden && field.isDraggable !== false)
+    .filter((field) => !field.isHidden)
 
   const selectedIds = new Set(selected.map((field) => field.id))
 
   const rows = selected
     .filter((field) =>
-      (field.kind === 'field' && field.role === 'dimension') ||
-      field.kind === 'derived' ||
-      field.role === 'derived_field')
+      field.placement !== 'values' &&
+      (field.kind === 'field' || field.kind === 'derived') &&
+      field.role !== 'metric')
     .map((field) => field.id)
 
   const values = selected
-    .filter((field) => field.kind === 'metric' || field.role === 'metric')
-    .map((field) => field.id)
+    .flatMap((field) => {
+      if (field.kind === 'metric' || field.role === 'metric') return [field.id]
+      if (field.placement === 'values' && field.aggregation) {
+        const metricId = findMetricForAggregation(state.metadata, field.id, field.aggregation)
+        return metricId ? [metricId] : []
+      }
+
+      return []
+    })
 
   const filters = state.filters
     .map((filter) => normalizeFilter(filter, lookup))
@@ -84,6 +93,17 @@ export function buildVisualQueryRequest(state: BuildVisualQueryRequestState): Vi
     limit: Math.min(Math.max(state.limit ?? 100, 1), 1000),
     offset: Math.max(state.offset ?? 0, 0),
   }
+}
+
+function findMetricForAggregation(
+  metadata: DatasetMetadataResponse | null,
+  fieldId: string,
+  aggregation: NonNullable<SelectedReportItem['aggregation']>
+) {
+  const expectedFormula = `${aggregation}([${fieldId}])`.toLowerCase()
+  return metadata?.metrics.find((metric) =>
+    metric.formula.trim().toLowerCase() === expectedFormula
+  )?.metricId ?? null
 }
 
 function buildLookup(metadata: DatasetMetadataResponse | null) {
@@ -127,6 +147,8 @@ function toSelectedReportItem(field: SelectedField, lookup: Map<string, FieldLoo
     dataType: metadata.dataType,
     isHidden: metadata.isHidden,
     isDraggable: metadata.isDraggable,
+    placement: field.placement,
+    aggregation: field.aggregation,
   }
 }
 

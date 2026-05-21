@@ -100,13 +100,13 @@ function getFieldState(field: MetadataField) {
   const isDerived = field.role === 'derived_field' || field.isDerived
 
   const canDragAsRow =
-    !isHidden && field.isDraggable !== false && (isDimension || isDerived)
+    !isHidden && (isDimension || isDerived || isMeasureCandidate || isKey)
 
   const canUseAsMetricCandidate =
     !isHidden && isMeasureCandidate
 
   const shouldRender = !isHidden
-  const isDisabled = isHidden || field.isDraggable === false
+  const isDisabled = isHidden
 
   return {
     isHidden,

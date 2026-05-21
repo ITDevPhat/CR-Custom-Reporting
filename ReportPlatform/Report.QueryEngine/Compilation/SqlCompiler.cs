@@ -10,6 +10,9 @@ public sealed class SqlCompiler
         var nextParameterIndex = 0;
         var baseAlias = plan.Aliases[plan.BaseTableId];
 
+        var usesTopForLimit = plan.Limit > 0 && plan.Offset == 0 && plan.OrderBy.Count == 0;
+        var top = usesTopForLimit ? $" TOP ({plan.Limit})" : "";
+
         var select = string.Join(",\n  ",
             plan.Select.Select(x => $"{x.Expression} AS [{x.Alias}]"));
 
@@ -29,19 +32,19 @@ public sealed class SqlCompiler
             ? "HAVING\n  " + string.Join("\n  AND ", plan.Having.Select(CompileFilter))
             : "";
 
-        var paging = plan.Limit > 0
+        var paging = plan.Limit > 0 && !usesTopForLimit
             ? $"OFFSET {plan.Offset} ROWS FETCH NEXT {plan.Limit} ROWS ONLY"
             : "";
 
         var orderBy = plan.OrderBy.Count > 0
             ? "ORDER BY\n  " + string.Join(",\n  ",
                 plan.OrderBy.Select(x => $"{CompileOrderExpression(x)} {x.Direction}"))
-            : plan.Limit > 0
-                ? "ORDER BY (SELECT 1)"
+            : plan.Offset > 0
+                ? "ORDER BY (SELECT NULL)"
                 : "";
 
         var sql = $"""
-        SELECT
+        SELECT{top}
           {select}
         FROM {plan.TableExpressions[plan.BaseTableId]} {baseAlias}
         {joins}

@@ -107,9 +107,9 @@ public sealed class SemanticModelBinder
             var field = model.Fields.FirstOrDefault(f => string.Equals(f.FieldId, item.Field, StringComparison.OrdinalIgnoreCase));
             if (field is not null)
             {
-                if (field.IsHidden || !field.IsDraggable)
+                if (field.IsHidden)
                 {
-                    AddError(errors, key, $"Field '{item.Field}' is hidden or not draggable.");
+                    AddError(errors, key, $"Field '{item.Field}' is hidden.");
                     continue;
                 }
 
@@ -179,9 +179,9 @@ public sealed class SemanticModelBinder
             var field = model.Fields.FirstOrDefault(f => string.Equals(f.FieldId, filter.Field, StringComparison.OrdinalIgnoreCase));
             if (field is not null)
             {
-                if (field.IsHidden || !field.IsDraggable)
+                if (field.IsHidden)
                 {
-                    AddError(errors, key, $"Filter field '{filter.Field}' is hidden or not draggable.");
+                    AddError(errors, key, $"Filter field '{filter.Field}' is hidden.");
                     continue;
                 }
 
@@ -306,7 +306,7 @@ public sealed class SemanticModelBinder
     private static bool IsUnavailableField(SemanticModel model, string fieldId)
     {
         var field = model.Fields.FirstOrDefault(f => f.FieldId.Equals(fieldId, StringComparison.OrdinalIgnoreCase));
-        return field is null || field.IsHidden || !field.IsDraggable;
+        return field is null || field.IsHidden;
     }
 
     private static bool IsUnavailableMetric(SemanticModel model, string metricId)

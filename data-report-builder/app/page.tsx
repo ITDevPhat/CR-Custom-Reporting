@@ -310,6 +310,8 @@ export default function ReportBuilderPage() {
       baseTableId: metric.baseTableId,
       aggregationBehavior: metric.aggregationBehavior,
       kind: 'metric',
+      role: 'metric',
+      placement: 'values',
     }
 
     setSelectedFields(prev => [...prev, newField])
@@ -318,32 +320,10 @@ export default function ReportBuilderPage() {
 
   const addField = useCallback((field: MetadataField) => {
     const isHidden = field.isHidden === true
-    const isKey = field.role === 'key'
-    const isDimension = field.role === 'dimension'
-    const isMeasureCandidate = field.role === 'measure_candidate'
     const isDerived = field.role === 'derived_field' || field.isDerived
 
-    if (isHidden || isKey) {
-      toast.info(`${field.displayName} is not draggable`)
-      return
-    }
-
-    if (isMeasureCandidate) {
-      const defaultMetric = metadata?.metrics.find(metric =>
-        metric.formula.toLowerCase().includes(`[${field.fieldId.toLowerCase()}]`)
-      )
-
-      if (defaultMetric) {
-        addMetric(defaultMetric)
-        return
-      }
-
-      toast.info('Create a measure before using this numeric field.')
-      return
-    }
-
-    if (!isDimension && !isDerived) {
-      toast.info(`${field.displayName} is not available for rows`)
+    if (isHidden) {
+      toast.info(`${field.displayName} is hidden`)
       return
     }
 
@@ -362,11 +342,13 @@ export default function ReportBuilderPage() {
       role: isDerived ? 'derived_field' : field.role,
       grain: field.grain,
       kind: isDerived ? 'derived' : 'field',
+      placement: 'rows',
+      aggregation: null,
     }
 
     setSelectedFields(prev => [...prev, newField])
     toast.success(`Added ${field.displayName}`)
-  }, [addMetric, metadata?.metrics, selectedFields])
+  }, [selectedFields])
 
   const addCalculatedFieldToReport = useCallback((calcField: CalculatedField) => {
     if (selectedFields.some(f => f.id === calcField.id)) {
@@ -447,6 +429,12 @@ export default function ReportBuilderPage() {
 
   const removeField = useCallback((id: string) => {
     setSelectedFields(prev => prev.filter(f => f.id !== id))
+  }, [])
+
+  const updateSelectedField = useCallback((id: string, patch: Partial<SelectedField>) => {
+    setSelectedFields(prev => prev.map(field =>
+      field.id === id ? { ...field, ...patch } : field
+    ))
   }, [])
 
   const clearFields = useCallback(() => {
@@ -813,6 +801,7 @@ export default function ReportBuilderPage() {
             <ReportWorkspace
               selectedFields={selectedFields}
               onRemoveField={removeField}
+              onUpdateField={updateSelectedField}
               previewLimit={previewLimit}
               onPreviewLimitChange={setPreviewLimit}
               appliedFilters={appliedFilters}

@@ -99,6 +99,7 @@ public sealed class QueryEngineTestHarness
                 Field("dimproduct.category", "DimProduct", "Category", "Category", "nvarchar", "dimension", "product"),
                 Field("factsales.salesamount", "FactSales", "SalesAmount", "Sales Amount", "decimal", "measure_candidate", "sales_transaction"),
                 Field("factsales.profitamount", "FactSales", "ProfitAmount", "Profit Amount", "decimal", "measure_candidate", "sales_transaction"),
+                Field("factsales.quantity", "FactSales", "Quantity", "Quantity", "int", "measure_candidate", "sales_transaction"),
                 Field("factsales.orderid", "FactSales", "OrderID", "Order ID", "nvarchar", "dimension", "sales_transaction"),
                 Field("factsales.discount", "FactSales", "Discount", "Discount", "decimal", "measure_candidate", "sales_transaction"),
                 new()
@@ -125,6 +126,7 @@ public sealed class QueryEngineTestHarness
             [
                 Metric("metric.total_sales", "TotalSales", "SUM([factsales.salesamount])", "FactSales", "additive"),
                 Metric("metric.total_profit", "TotalProfit", "SUM([factsales.profitamount])", "FactSales", "additive"),
+                Metric("metric.sum_factsales_quantity", "SumQuantity", "SUM([factsales.quantity])", "FactSales", "additive"),
                 Metric("metric.profit_margin", "ProfitMargin", "SUM([factsales.profitamount]) / SUM([factsales.salesamount])", "FactSales", "ratio"),
                 Metric("metric.order_count", "OrderCount", "COUNT_DISTINCT([factsales.orderid])", "FactSales", "non_additive")
             ],

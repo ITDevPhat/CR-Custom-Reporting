@@ -204,7 +204,7 @@ public sealed partial class SemanticMetadataGenerator
                 DefaultAggregation: "none",
                 Format: "general",
                 IsHidden: false,
-                IsDraggable: false,
+                IsDraggable: true,
                 Reason: "SQL Server primary key");
         }
 
@@ -216,7 +216,7 @@ public sealed partial class SemanticMetadataGenerator
                 DefaultAggregation: "none",
                 Format: "general",
                 IsHidden: false,
-                IsDraggable: false,
+                IsDraggable: true,
                 Reason: "SQL Server foreign key");
         }
 
@@ -228,7 +228,7 @@ public sealed partial class SemanticMetadataGenerator
                 DefaultAggregation: "none",
                 Format: "general",
                 IsHidden: false,
-                IsDraggable: false,
+                IsDraggable: true,
                 Reason: "Participates in discovered relationship");
         }
 
@@ -240,7 +240,7 @@ public sealed partial class SemanticMetadataGenerator
                 DefaultAggregation: "none",
                 Format: "general",
                 IsHidden: false,
-                IsDraggable: false,
+                IsDraggable: true,
                 Reason: "Inferred fact-to-dimension key candidate");
         }
 
