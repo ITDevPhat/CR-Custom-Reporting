@@ -99,10 +99,10 @@ const serializeExpressionToken = (t: ExpressionToken) => {
   switch (t.kind) {
     case 'field': return `[${t.fieldId}]`
     case 'metric': return `[${t.metricId}]`
-    case 'operator': return t.operator
+    case 'operator': return t.operator ?? String(t.value ?? '')
     case 'number': return `${t.value}`
     case 'string': return `'${String(t.value ?? '').replaceAll("'", "''")}'`
-    case 'paren': return t.value
+    case 'paren': return String(t.value ?? '')
     case 'function': return t.name
   }
 }
@@ -222,13 +222,15 @@ function DraggablePaletteItem({
 
 // Draggable operator button
 function DraggableOperator({ symbol, label, onSelect }: { symbol: string; label: string; onSelect?: (token: ExpressionToken) => void }) {
+  const isParen = symbol === '(' || symbol === ')'
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `operator-${symbol}`,
     data: {
       type: 'palette-item',
-      tokenType: 'operator',
-      value: symbol,
-      displayLabel: symbol,
+      kind: isParen ? 'paren' : 'operator',
+      operator: isParen ? undefined : symbol,
+      value: isParen ? symbol : undefined,
+      displayName: symbol,
     },
   })
 
@@ -236,7 +238,7 @@ function DraggableOperator({ symbol, label, onSelect }: { symbol: string; label:
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <button onClick={() => onSelect?.(symbol === '(' || symbol === ')' ? { id: createId(), kind: 'paren', value: symbol } : { id: createId(), kind: 'operator', operator: symbol as ArithmeticOperator })}
+          <button onClick={() => onSelect?.(isParen ? { id: createId(), kind: 'paren', value: symbol } : { id: createId(), kind: 'operator', operator: symbol as ArithmeticOperator })}
             ref={setNodeRef}
             {...listeners}
             {...attributes}
@@ -799,16 +801,14 @@ export function DerivedFieldExpressionBuilder({
 
   const addParentheses = useCallback(() => {
     const openParen: ExpressionToken = {
-      id: `token-${Date.now()}-open`,
-      type: 'operator',
+      id: createId(),
+      kind: 'paren',
       value: '(',
-      displayLabel: '(',
     }
     const closeParen: ExpressionToken = {
-      id: `token-${Date.now()}-close`,
-      type: 'operator',
+      id: createId(),
+      kind: 'paren',
       value: ')',
-      displayLabel: ')',
     }
     setTokens(prev => [...prev, openParen, closeParen])
   }, [])
