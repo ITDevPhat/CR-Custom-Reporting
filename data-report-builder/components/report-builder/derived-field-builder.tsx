@@ -778,6 +778,7 @@ export function DerivedFieldExpressionBuilder({
       toast.error('This expression uses measures. Save it as a Measure, not a Derived Field.')
       return
     }
+
     const newDerived: CalculatedField = {
       id: `derived-${Date.now()}`,
       name: name.trim(),
@@ -816,7 +817,7 @@ export function DerivedFieldExpressionBuilder({
           </p>
           {hasAggregateExpression && (
             <p className="text-sm text-amber-600">
-              This expression uses measures. Save it as a Measure, not a Derived Field.
+              This expression uses measures/aggregates. Save it as a Measure, not a Derived Field.
             </p>
           )}
         </DialogHeader>
