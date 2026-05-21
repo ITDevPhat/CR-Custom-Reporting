@@ -388,7 +388,31 @@ export default function ReportBuilderPage() {
       }
 
       if (field.type === 'derived' && isCalculatedMeasureExpression) {
-        throw new Error('This expression uses measures. Save it as a Measure, not a Derived Field.')
+        const formula = expression
+        if (!formula) throw new Error('Calculated measure expression is required.')
+        const fieldRefs = Array.from(formula.matchAll(/\[([^\]]+)\]/g)).map((m) => m[1])
+        const nonMetricRef = fieldRefs.find((ref) => !ref.toLowerCase().startsWith('metric.'))
+        const baseField = nonMetricRef
+          ? metadata?.tables.flatMap((table) => table.fields).find((f) => f.fieldId.toLowerCase() === nonMetricRef.toLowerCase())
+          : undefined
+        const fallbackBaseTable = metadata?.tables[0]?.tableId
+        const body: MetricRequest = {
+          displayName: field.name,
+          formula,
+          baseTableId: baseField?.tableId ?? fallbackBaseTable ?? '',
+          aggregationBehavior: 'additive',
+          dataType: 'decimal',
+          format: 'decimal',
+          isHidden: false,
+          isDraggable: true,
+        }
+        if (!body.baseTableId) throw new Error('Unable to infer base table for calculated measure.')
+        const validation = await validateMetric(datasetId, body)
+        if (!validation.valid) throw new Error(validation.errors.join(' '))
+        await createMetric(datasetId, body)
+        await refreshMetadata()
+        toast.success(`Calculated measure "${field.name}" created`)
+        return
       }
 
       if (field.type === 'derived') {
