@@ -33,6 +33,7 @@ import {
   type CalculatedField,
 } from '@/lib/schema-data'
 import {
+  type DatasetMetadataResponse,
   type MetadataField,
   type MetadataMetric,
   type MetadataTable,
@@ -54,6 +55,7 @@ interface SchemaPanelProps {
   loadedTables: TableSchema[] | null
   metadataTables: MetadataTable[]
   metadataMetrics: MetadataMetric[]
+  semanticMetadata: DatasetMetadataResponse | null
   metadataLoading: boolean
   metadataError: string | null
 }
@@ -404,6 +406,7 @@ export function SchemaPanel({
   onAddCalculatedFieldToReport,
   metadataTables,
   metadataMetrics,
+  semanticMetadata,
   metadataLoading,
   metadataError,
 }: SchemaPanelProps) {
@@ -499,6 +502,7 @@ export function SchemaPanel({
   const metrics = calculatedFields.filter(f => f.type === 'metric')
   const measures = calculatedFields.filter(f => f.type === 'measure')
   const derived = calculatedFields.filter(f => f.type === 'derived')
+  const hasDataset = metadataTables.length > 0
 
   return (
     <div className="h-full flex flex-col bg-card border-r border-border overflow-hidden">
@@ -547,7 +551,7 @@ export function SchemaPanel({
           {!metadataLoading && !metadataError && metadataTables.length === 0 && metadataMetrics.length === 0 && (
             <div className="m-2 rounded-md border border-dashed p-4 text-center">
               <p className="text-sm font-medium">No source connected</p>
-              <p className="text-xs text-muted-foreground mt-1">Connect a source to load fields</p>
+              <p className="text-xs text-muted-foreground mt-1">Connect a datasource to load semantic fields</p>
             </div>
           )}
 
@@ -659,6 +663,8 @@ export function SchemaPanel({
                     size="sm"
                     className="w-full justify-start text-xs h-7 text-muted-foreground hover:text-foreground"
                     onClick={() => setMetricModalOpen(true)}
+                    disabled={!hasDataset}
+                    title={!hasDataset ? 'Connect a source before creating calculated fields.' : undefined}
                   >
                     <Plus className="h-3 w-3 mr-1" />
                     New Metric
@@ -698,6 +704,8 @@ export function SchemaPanel({
                     size="sm"
                     className="w-full justify-start text-xs h-7 text-muted-foreground hover:text-foreground"
                     onClick={() => setMeasureModalOpen(true)}
+                    disabled={!hasDataset}
+                    title={!hasDataset ? 'Connect a source before creating calculated fields.' : undefined}
                   >
                     <Plus className="h-3 w-3 mr-1" />
                     New Measure
@@ -737,6 +745,8 @@ export function SchemaPanel({
                     size="sm"
                     className="w-full justify-start text-xs h-7 text-muted-foreground hover:text-foreground"
                     onClick={() => setDerivedModalOpen(true)}
+                    disabled={!hasDataset}
+                    title={!hasDataset ? 'Connect a source before creating calculated fields.' : undefined}
                   >
                     <Plus className="h-3 w-3 mr-1" />
                     New Derived Field
@@ -758,6 +768,8 @@ export function SchemaPanel({
         open={measureModalOpen}
         onOpenChange={setMeasureModalOpen}
         onSave={onAddCalculatedField}
+        tables={metadataTables}
+        disabled={!hasDataset}
       />
       <DerivedFieldExpressionBuilder
         open={derivedModalOpen}
@@ -765,6 +777,7 @@ export function SchemaPanel({
         onSave={onAddCalculatedField}
         existingMeasures={measures}
         existingDerivedFields={derived}
+        metadata={semanticMetadata}
       />
     </div>
   )
