@@ -50,6 +50,67 @@ public sealed class SqlGenerationTests
     }
 
     [Fact]
+    public void SumAggregation_ShouldCompileRuntimeMetric()
+    {
+        var result = _harness.Compile(Request(values: ["metric.sum_factsales_salesamount"], limit: 50));
+
+        AssertSqlContains(result.Sql.Sql, "SUM(f.SalesAmount) AS SumSalesAmount");
+    }
+
+    [Fact]
+    public void AvgAggregation_ShouldCompileRuntimeMetric()
+    {
+        var result = _harness.Compile(Request(values: ["metric.avg_factsales_unitprice"], limit: 50));
+
+        AssertSqlContains(result.Sql.Sql, "AVG(f.UnitPrice) AS AverageUnitPrice");
+    }
+
+    [Fact]
+    public void MinAggregation_ShouldCompileRuntimeMetric()
+    {
+        var result = _harness.Compile(Request(values: ["metric.min_factsales_orderdate"], limit: 50));
+
+        AssertSqlContains(result.Sql.Sql, "MIN(f.OrderDate) AS MinOrderDate");
+    }
+
+    [Fact]
+    public void MaxAggregation_ShouldCompileRuntimeMetric()
+    {
+        var result = _harness.Compile(Request(values: ["metric.max_factsales_orderdate"], limit: 50));
+
+        AssertSqlContains(result.Sql.Sql, "MAX(f.OrderDate) AS MaxOrderDate");
+    }
+
+    [Fact]
+    public void CountAggregation_ShouldCompileRuntimeMetric()
+    {
+        var result = _harness.Compile(Request(values: ["metric.count_factsales_salesordernumber"], limit: 50));
+
+        AssertSqlContains(result.Sql.Sql, "COUNT(f.SalesOrderNumber) AS CountSalesOrderNumber");
+    }
+
+    [Fact]
+    public void CountDistinctAggregation_ShouldCompileRuntimeMetric()
+    {
+        var result = _harness.Compile(Request(values: ["metric.count_distinct_factsales_customerkey"], limit: 50));
+
+        AssertSqlContains(result.Sql.Sql, "COUNT(DISTINCT f.CustomerKey) AS DistinctCustomerKeyCount");
+    }
+
+    [Fact]
+    public void DontSummarizeNumericField_ShouldCompileRawFieldWithoutAggregate()
+    {
+        var result = _harness.Compile(Request(rows: ["factsales.unitprice"], limit: 50));
+
+        AssertSqlContains(result.Sql.Sql, "SELECT TOP (50) f.UnitPrice AS UnitPrice FROM FactSales f");
+        AssertSqlDoesNotContain(result.Sql.Sql, "SUM(");
+        AssertSqlDoesNotContain(result.Sql.Sql, "AVG(");
+        AssertSqlDoesNotContain(result.Sql.Sql, "MIN(");
+        AssertSqlDoesNotContain(result.Sql.Sql, "MAX(");
+        AssertSqlDoesNotContain(result.Sql.Sql, "COUNT(");
+    }
+
+    [Fact]
     public void MinAndMaxMetrics_ShouldCompileMinMaxAggregations()
     {
         var minResult = _harness.Compile(Request(values: ["metric.min_factsales_orderdate"], limit: 50));
@@ -263,6 +324,38 @@ public sealed class SqlGenerationTests
     }
 
     [Fact]
+    public void AggregateFilter_ShouldCompileToHaving()
+    {
+        var result = _harness.Compile(Request(
+            values: ["metric.max_factsales_unitpricediscountpct"],
+            filters:
+            [
+                new FilterRequest { Field = "metric.max_factsales_unitpricediscountpct", Operator = ">", Value = 0.2m, Scope = "visual" }
+            ]));
+
+        AssertSqlContains(result.Sql.Sql, "HAVING MAX(f.UnitPriceDiscountPct) > @p0");
+        AssertSqlDoesNotContain(result.Sql.Sql, "WHERE MAX(f.UnitPriceDiscountPct) > @p0");
+        result.Sql.Parameters.Should().ContainKey("p0").WhoseValue.Should().Be(0.2m);
+    }
+
+    [Fact]
+    public void InvalidSumOnText_ShouldFail()
+    {
+        var act = () => _harness.Compile(Request(values: ["metric.sum_dimcustomer_firstname"]));
+
+        act.Should().Throw<SemanticQueryValidationException>()
+            .Where(ex => ex.Errors.Values.SelectMany(errors => errors).Any(error => error.Contains("SUM is invalid", StringComparison.OrdinalIgnoreCase)));
+    }
+
+    [Fact]
+    public void CountTextAllowed_ShouldCompile()
+    {
+        var result = _harness.Compile(Request(values: ["metric.count_dimcustomer_firstname"]));
+
+        AssertSqlContains(result.Sql.Sql, "COUNT(c.FirstName) AS CountFirstName");
+    }
+
+    [Fact]
     public void SortByMetricAndDimension_ShouldOrderBySelectedAliases()
     {
         var result = _harness.Compile(Request(
@@ -285,6 +378,58 @@ public sealed class SqlGenerationTests
         AssertSqlContains(result.Sql.Sql, "SUM(f.ProfitAmount) / NULLIF(SUM(f.SalesAmount), 0) AS ProfitMargin");
         AssertSqlDoesNotContain(result.Sql.Sql, "SUM(f.ProfitAmount) / SUM(f.SalesAmount)");
         AssertSqlContains(result.Sql.Sql, "GROUP BY c.CustomerName");
+    }
+
+    [Fact]
+    public void CalculatedMeasureFromTwoMeasures_ShouldExpandBothMeasures()
+    {
+        var harness = new QueryEngineTestHarness(model =>
+        {
+            model.Metrics.Add(new()
+            {
+                MetricId = "metric.profit_margin_from_measures",
+                DatasetId = model.DatasetId,
+                DisplayName = "Profit Margin From Measures",
+                Formula = "[metric.total_profit] / [metric.total_sales]",
+                BaseTableId = "FactSales",
+                AggregationBehavior = "calculated",
+                DataType = "decimal",
+                Format = "percentage",
+                IsDraggable = true
+            });
+            return model;
+        });
+
+        var result = harness.Compile(Request(rows: ["dimcustomer.customername"], values: ["metric.profit_margin_from_measures"]));
+
+        AssertSqlContains(result.Sql.Sql, "(SUM(f.ProfitAmount)) / NULLIF((SUM(f.SalesAmount)), 0) AS ProfitMarginFromMeasures");
+        AssertSqlContains(result.Sql.Sql, "GROUP BY c.CustomerName");
+    }
+
+    [Fact]
+    public void CalculatedMeasureWithBareRowField_ShouldFailBeforeSqlExecution()
+    {
+        var harness = new QueryEngineTestHarness(model =>
+        {
+            model.Metrics.Add(new()
+            {
+                MetricId = "metric.bad_ratio",
+                DatasetId = model.DatasetId,
+                DisplayName = "Bad Ratio",
+                Formula = "[metric.total_sales] / [factsales.quantity]",
+                BaseTableId = "FactSales",
+                AggregationBehavior = "calculated",
+                DataType = "decimal",
+                IsDraggable = true
+            });
+            return model;
+        });
+
+        var act = () => harness.Compile(Request(rows: ["dimcustomer.customername"], values: ["metric.bad_ratio"]));
+
+        act.Should().Throw<SemanticQueryValidationException>()
+            .Where(ex => ex.Errors.ContainsKey("errorCode") &&
+                ex.Errors["errorCode"].Contains("AGGREGATE_SCOPE_CONFLICT"));
     }
 
     [Fact]
@@ -351,7 +496,7 @@ public sealed class SqlGenerationTests
         var act = () => harness.Compile(Request(rows: ["dimproduct.category"], values: ["metric.total_sales"]));
 
         act.Should().Throw<SemanticQueryValidationException>()
-            .Where(ex => ex.Errors.Values.SelectMany(errors => errors).Any(error => error.Contains("No relationship", StringComparison.OrdinalIgnoreCase)));
+            .Where(ex => ex.Errors.Values.SelectMany(errors => errors).Any(error => error.Contains("relationship path", StringComparison.OrdinalIgnoreCase)));
     }
 
     [Fact]
@@ -381,7 +526,8 @@ public sealed class SqlGenerationTests
 
         var act = () => harness.Compile(Request(rows: ["dimdate.yearnumber"], values: ["metric.total_sales"]));
         act.Should().Throw<SemanticQueryValidationException>()
-            .Where(ex => ex.Errors.TryGetValue("errorCode", out var code) && code.Contains("AMBIGUOUS_RELATIONSHIP_PATH"));
+            .Where(ex => ex.Errors.ContainsKey("errorCode") &&
+                ex.Errors["errorCode"].Contains("AMBIGUOUS_RELATIONSHIP_PATH"));
     }
 
     [Fact]

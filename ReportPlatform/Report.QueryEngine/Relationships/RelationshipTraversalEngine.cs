@@ -22,9 +22,6 @@ public sealed class RelationshipTraversalEngine
             .Where(t => t != baseTable)
             .ToList();
 
-        var activeRelationships = model.Relationships
-            .Where(r => r.IsActive && r.Cardinality is "N:1" or "1:1" && r.CrossFilterDirection == "single")
-            .ToList();
         var joins = new List<JoinDef>();
         var seenJoinKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -51,9 +48,7 @@ public sealed class RelationshipTraversalEngine
             }
             if (candidates.Count > 1)
             {
-                var key = $"{rel.FromTableId}.{rel.FromColumn}->{rel.ToTableId}.{rel.ToColumn}";
-                if (!seenJoinKeys.Add(key)) continue;
-                joins.Add(new JoinDef
+                throw new SemanticQueryValidationException(new Dictionary<string, string[]>
                 {
                     ["errorCode"] = ["AMBIGUOUS_RELATIONSHIP_PATH"],
                     ["message"] = [$"Multiple active relationships exist between {baseTable} and {table}. Make exactly one relationship active."],
@@ -61,6 +56,8 @@ public sealed class RelationshipTraversalEngine
                 });
             }
             var rel = candidates[0];
+            var key = $"{rel.FromTableId}.{rel.FromColumn}->{rel.ToTableId}.{rel.ToColumn}";
+            if (!seenJoinKeys.Add(key)) continue;
 
             joins.Add(new JoinDef
             {

@@ -95,11 +95,17 @@ public sealed class QueryEngineTestHarness
             Fields =
             [
                 Field("dimcustomer.customername", "DimCustomer", "CustomerName", "CustomerName", "nvarchar", "dimension", "customer"),
+                Field("dimcustomer.firstname", "DimCustomer", "FirstName", "First Name", "nvarchar", "dimension", "customer"),
                 Field("dimdate.yearnumber", "DimDate", "YearNumber", "Year", "int", "dimension", "date"),
                 Field("dimproduct.category", "DimProduct", "Category", "Category", "nvarchar", "dimension", "product"),
                 Field("factsales.salesamount", "FactSales", "SalesAmount", "Sales Amount", "decimal", "measure_candidate", "sales_transaction"),
                 Field("factsales.profitamount", "FactSales", "ProfitAmount", "Profit Amount", "decimal", "measure_candidate", "sales_transaction"),
                 Field("factsales.quantity", "FactSales", "Quantity", "Quantity", "int", "measure_candidate", "sales_transaction"),
+                Field("factsales.unitprice", "FactSales", "UnitPrice", "Unit Price", "decimal", "measure_candidate", "sales_transaction"),
+                Field("factsales.unitpricediscountpct", "FactSales", "UnitPriceDiscountPct", "Unit Price Discount Pct", "decimal", "measure_candidate", "sales_transaction"),
+                Field("factsales.orderdate", "FactSales", "OrderDate", "Order Date", "datetime", "dimension", "sales_transaction"),
+                Field("factsales.customerkey", "FactSales", "CustomerKey", "Customer Key", "int", "key", "sales_transaction"),
+                Field("factsales.salesordernumber", "FactSales", "SalesOrderNumber", "Sales Order Number", "nvarchar", "dimension", "sales_transaction"),
                 Field("factsales.orderid", "FactSales", "OrderID", "Order ID", "nvarchar", "dimension", "sales_transaction"),
                 Field("factsales.discount", "FactSales", "Discount", "Discount", "decimal", "measure_candidate", "sales_transaction"),
                 new()

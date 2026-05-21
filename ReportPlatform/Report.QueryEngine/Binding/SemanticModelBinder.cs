@@ -2,6 +2,7 @@ using System.Text.Json;
 using Report.Contracts.Requests;
 using Report.Metadata.Models;
 using Report.QueryEngine.Compilation;
+using Report.QueryEngine.Measures;
 using Report.QueryEngine.Validation;
 
 namespace Report.QueryEngine.Binding;
@@ -32,8 +33,10 @@ public sealed class SemanticModelBinder
             ];
         }
 
+        var resolvedValues = ResolveMetrics(request.Values, model, errors);
         var invalidValues = request.Values
-            .Where(id => !metricIds.Contains(id) || IsUnavailableMetric(model, id))
+            .Where(id => resolvedValues.All(metric => !metric.MetricId.Equals(id, StringComparison.OrdinalIgnoreCase)) &&
+                !errors.ContainsKey($"values.{id}"))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
@@ -57,14 +60,10 @@ public sealed class SemanticModelBinder
             .Select(id => model.Fields.First(f => string.Equals(f.FieldId, id, StringComparison.OrdinalIgnoreCase)))
             .ToList();
 
-        var values = request.Values
-            .Select(id => model.Metrics.First(m => string.Equals(m.MetricId, id, StringComparison.OrdinalIgnoreCase)))
-            .ToList();
-
         return new BoundSemanticQuery
         {
             Rows = rows,
-            Values = values,
+            Values = resolvedValues,
             Filters = resolvedFilters,
             Sort = resolvedSort,
             Limit = request.Limit,
@@ -126,7 +125,7 @@ public sealed class SemanticModelBinder
                 continue;
             }
 
-            var metric = model.Metrics.FirstOrDefault(m => string.Equals(m.MetricId, item.Field, StringComparison.OrdinalIgnoreCase));
+            var metric = ResolveMetric(item.Field, model, out var metricError);
             if (metric is not null)
             {
                 if (metric.IsHidden || !metric.IsDraggable)
@@ -142,6 +141,12 @@ public sealed class SemanticModelBinder
                     Alias = SqlIdentifier.SafeAlias(metric.DisplayName),
                     Direction = direction
                 });
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(metricError))
+            {
+                AddError(errors, key, metricError);
                 continue;
             }
 
@@ -207,7 +212,7 @@ public sealed class SemanticModelBinder
                 continue;
             }
 
-            var metric = model.Metrics.FirstOrDefault(m => string.Equals(m.MetricId, filter.Field, StringComparison.OrdinalIgnoreCase));
+            var metric = ResolveMetric(filter.Field, model, out var metricError);
             if (metric is not null)
             {
                 if (metric.IsHidden || !metric.IsDraggable)
@@ -230,6 +235,12 @@ public sealed class SemanticModelBinder
                     Value = normalizedValue,
                     TargetType = "metric"
                 });
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(metricError))
+            {
+                AddError(errors, key, metricError);
                 continue;
             }
 
@@ -311,8 +322,55 @@ public sealed class SemanticModelBinder
 
     private static bool IsUnavailableMetric(SemanticModel model, string metricId)
     {
-        var metric = model.Metrics.FirstOrDefault(m => m.MetricId.Equals(metricId, StringComparison.OrdinalIgnoreCase));
+        var metric = ResolveMetric(metricId, model, out _);
         return metric is null || metric.IsHidden || !metric.IsDraggable;
+    }
+
+    private static List<SemanticMetric> ResolveMetrics(
+        List<string> metricIds,
+        SemanticModel model,
+        Dictionary<string, string[]> errors)
+    {
+        var resolved = new List<SemanticMetric>();
+
+        foreach (var metricId in metricIds)
+        {
+            var metric = ResolveMetric(metricId, model, out var error);
+            if (metric is not null && !metric.IsHidden && metric.IsDraggable)
+            {
+                resolved.Add(metric);
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                AddError(errors, $"values.{metricId}", error);
+            }
+        }
+
+        return resolved;
+    }
+
+    private static SemanticMetric? ResolveMetric(
+        string metricId,
+        SemanticModel model,
+        out string? error)
+    {
+        error = null;
+        var metric = model.Metrics.FirstOrDefault(m =>
+            string.Equals(m.MetricId, metricId, StringComparison.OrdinalIgnoreCase));
+
+        if (metric is not null)
+        {
+            return metric;
+        }
+
+        if (RuntimeAggregateMetricFactory.TryCreate(metricId, model, out var runtimeMetric, out error))
+        {
+            return runtimeMetric;
+        }
+
+        return null;
     }
 
     private static List<object?> ToValueList(object? rawValue)

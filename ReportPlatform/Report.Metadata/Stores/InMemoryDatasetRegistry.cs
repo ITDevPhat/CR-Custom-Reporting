@@ -69,6 +69,7 @@ public sealed class InMemoryDatasetRegistry : IDatasetRegistry
                 IsHidden = m.IsHidden,
                 IsDraggable = m.IsDraggable
             }).ToList(),
+            SemanticObjects = model.SemanticObjects,
             Relationships = model.Relationships.Select(r => new SemanticRelationship
             {
                 RelationshipId = string.IsNullOrWhiteSpace(r.RelationshipId) ? $"rel_{Guid.NewGuid():N}" : r.RelationshipId,
@@ -111,6 +112,7 @@ public sealed class InMemoryDatasetRegistry : IDatasetRegistry
             Tables = model.Tables,
             Fields = model.Fields,
             Metrics = model.Metrics,
+            SemanticObjects = model.SemanticObjects,
             Relationships = model.Relationships
         };
 

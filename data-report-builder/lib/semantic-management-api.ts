@@ -49,10 +49,36 @@ export type ExpressionValidationRequest = {
 export type ExpressionValidationResult = {
   valid: boolean
   detectedKind: 'calculated_column' | 'calculated_measure'
+  detectedScope?: string
+  dataType?: string
   returnType: string
   dependencies: string[]
+  sqlPreview?: string
   compiledSqlPreview: string
-  errors: string[]
+  errors: ExpressionValidationMessage[]
+  warnings?: ExpressionValidationMessage[]
+}
+
+export type ExpressionValidationMessage = {
+  code: string
+  message: string
+}
+
+export type CreateCalculatedObjectRequest = {
+  displayName: string
+  expression: string
+  targetKind: 'auto' | 'calculated_column' | 'calculated_measure'
+  format?: string
+  isHidden: boolean
+  isDraggable: boolean
+}
+
+export type CreateCalculatedObjectResponse = {
+  id: string
+  detectedKind: 'calculated_column' | 'calculated_measure'
+  scope: string
+  dataType: string
+  dependencies: string[]
 }
 
 export function updateField(datasetId: string, fieldId: string, body: Partial<MetadataField>) {
@@ -92,6 +118,13 @@ export function createDerivedField(datasetId: string, body: DerivedFieldRequest)
 
 export function validateExpression(datasetId: string, body: ExpressionValidationRequest) {
   return request<ExpressionValidationResult>(`/api/datasets/${encodeURIComponent(datasetId)}/expressions/validate`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export function createCalculatedObject(datasetId: string, body: CreateCalculatedObjectRequest) {
+  return request<CreateCalculatedObjectResponse>(`/api/datasets/${encodeURIComponent(datasetId)}/calculated-objects`, {
     method: 'POST',
     body: JSON.stringify(body),
   })

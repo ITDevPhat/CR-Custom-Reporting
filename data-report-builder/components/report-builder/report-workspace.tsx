@@ -131,6 +131,10 @@ function getKindIcon(kind: SelectedField['kind']) {
   }
 }
 
+function getKindLabel(kind: SelectedField['kind']) {
+  return kind === 'derived' ? 'calculated column' : kind
+}
+
 interface SortableFieldChipProps {
   field: SelectedField
   onRemove: (id: string) => void
@@ -152,7 +156,7 @@ function SortableFieldChip({ field, onRemove, onUpdate }: SortableFieldChipProps
     transition,
   }
 
-  const isMeasureCandidate = field.kind === 'field' && field.role === 'measure_candidate'
+  const isAggregatableField = field.kind === 'field' || field.kind === 'column' || field.kind === 'derived'
 
   const getSourceInfo = () => {
     switch (field.kind) {
@@ -208,10 +212,10 @@ function SortableFieldChip({ field, onRemove, onUpdate }: SortableFieldChipProps
                 variant="secondary" 
                 className={cn('text-[10px] px-1.5 py-0 font-normal ml-1 capitalize', getKindBadgeColor(field.kind))}
               >
-                {field.kind}
+                {getKindLabel(field.kind)}
               </Badge>
             )}
-            {isMeasureCandidate && (
+            {isAggregatableField && (
               <select
                 value={field.aggregation ?? ''}
                 onPointerDown={(event) => event.stopPropagation()}
@@ -246,7 +250,7 @@ function SortableFieldChip({ field, onRemove, onUpdate }: SortableFieldChipProps
           <div className="space-y-1">
             <p className="font-medium">{field.columnName}</p>
             <p className="text-xs text-muted-foreground">
-              Type: <span className="capitalize">{field.kind}</span>
+              Type: <span className="capitalize">{getKindLabel(field.kind)}</span>
             </p>
             <p className="text-xs text-muted-foreground break-all">
               Source: {getSourceInfo()}

@@ -172,7 +172,7 @@ function DraggableField({ field, isSelected, onAddField }: DraggableFieldProps) 
       )}
       {state.isDerived && (
         <Badge variant="outline" className="text-[10px] px-1.5 py-0 font-normal">
-          derived
+          calculated column
         </Badge>
       )}
       <Badge 
@@ -283,6 +283,10 @@ function DraggableCalculatedField({ field, isSelected, onAdd, onDelete }: Dragga
     }
   }
 
+  const getBadgeLabel = () => {
+    return field.type === 'derived' ? 'calculated column' : field.type
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -306,7 +310,7 @@ function DraggableCalculatedField({ field, isSelected, onAdd, onDelete }: Dragga
         variant="secondary" 
         className={cn('text-[10px] px-1.5 py-0 font-normal capitalize', getBadgeColor())}
       >
-        {field.type}
+        {getBadgeLabel()}
       </Badge>
       {isSelected && (
         <Check className="h-3 w-3 text-primary" />
@@ -502,6 +506,23 @@ export function SchemaPanel({
   const metrics = calculatedFields.filter(f => f.type === 'metric')
   const measures = calculatedFields.filter(f => f.type === 'measure')
   const derived = calculatedFields.filter(f => f.type === 'derived')
+  const metadataDerivedForBuilder = useMemo<CalculatedField[]>(() => (
+    metadataDerivedFields.map((field) => ({
+      id: field.fieldId,
+      name: field.displayName,
+      type: 'derived',
+      expression: field.expression ?? undefined,
+    }))
+  ), [metadataDerivedFields])
+  const existingDerivedForBuilder = useMemo(() => {
+    const seen = new Set<string>()
+    return [...metadataDerivedForBuilder, ...derived].filter((field) => {
+      const key = field.id.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  }, [metadataDerivedForBuilder, derived])
   const hasDataset = metadataTables.length > 0
 
   return (
@@ -610,7 +631,7 @@ export function SchemaPanel({
                   <ChevronRight className="h-4 w-4" />
                 )}
                 <FunctionSquare className="h-4 w-4 text-pink-600" />
-                <span>Derived Fields</span>
+                <span>Calculated Columns</span>
                 <span className="text-xs">({metadataDerivedFields.length})</span>
               </button>
               {expandedCalcSections.has('metadataDerived') && (
@@ -714,7 +735,7 @@ export function SchemaPanel({
               )}
             </div>
 
-            {/* Derived Fields Section */}
+            {/* Calculated Columns Section */}
             <div className="mb-2">
               <button
                 onClick={() => toggleCalcSection('derived')}
@@ -726,7 +747,7 @@ export function SchemaPanel({
                   <ChevronRight className="h-4 w-4" />
                 )}
                 <FunctionSquare className="h-4 w-4 text-pink-600" />
-                <span>Derived Fields</span>
+                <span>Calculated Columns</span>
                 <span className="text-xs">({derived.length})</span>
               </button>
               {expandedCalcSections.has('derived') && (
@@ -749,7 +770,7 @@ export function SchemaPanel({
                     title={!hasDataset ? 'Connect a source before creating calculated fields.' : undefined}
                   >
                     <Plus className="h-3 w-3 mr-1" />
-                    New Derived Field
+                    New Calculated Column
                   </Button>
                 </div>
               )}
@@ -776,7 +797,7 @@ export function SchemaPanel({
         onOpenChange={setDerivedModalOpen}
         onSave={onAddCalculatedField}
         existingMeasures={measures}
-        existingDerivedFields={derived}
+        existingDerivedFields={existingDerivedForBuilder}
         metadata={semanticMetadata ?? (metadataTables.length ? { datasetId: '', displayName: '', connectionId: '', tables: metadataTables, metrics: metadataMetrics, relationships: [] } : null)}
       />
     </div>

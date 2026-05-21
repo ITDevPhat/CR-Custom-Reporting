@@ -271,7 +271,11 @@ export function SortBuilderDialog({
       name: sf.columnName,
       dataType: sf.dataType,
       sourceType: sf.kind,
-      sourceInfo: sf.kind === 'column' || sf.kind === 'field' ? `${sf.tableName}.${sf.columnName}` : sf.kind,
+      sourceInfo: sf.kind === 'column' || sf.kind === 'field'
+        ? `${sf.tableName}.${sf.columnName}`
+        : sf.kind === 'derived'
+          ? 'calculated column'
+          : sf.kind,
     }))
   }, [selectedFields])
 

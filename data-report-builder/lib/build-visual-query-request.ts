@@ -29,6 +29,9 @@ export type BuildVisualQueryRequestState = {
 }
 
 type FieldLookup = {
+  displayName: string
+  tableId: string
+  physicalColumn: string
   dataType: string
   kind: 'field' | 'metric' | 'derived'
   role: string
@@ -38,6 +41,7 @@ type FieldLookup = {
 
 export function buildVisualQueryRequest(state: BuildVisualQueryRequestState): VisualQueryRequest {
   const lookup = buildLookup(state.metadata)
+  addRuntimeMetricLookups(lookup, state.selectedFields)
   const selected = state.selectedFields
     .map((field) => toSelectedReportItem(field, lookup))
     .filter((field): field is SelectedReportItem => Boolean(field))
@@ -47,7 +51,7 @@ export function buildVisualQueryRequest(state: BuildVisualQueryRequestState): Vi
 
   const rows = selected
     .filter((field) =>
-      field.placement !== 'values' &&
+      (!field.aggregation || field.placement !== 'values') &&
       (field.kind === 'field' || field.kind === 'derived') &&
       field.role !== 'metric')
     .map((field) => field.id)
@@ -56,8 +60,7 @@ export function buildVisualQueryRequest(state: BuildVisualQueryRequestState): Vi
     .flatMap((field) => {
       if (field.kind === 'metric' || field.role === 'metric') return [field.id]
       if (field.placement === 'values' && field.aggregation) {
-        const metricId = findMetricForAggregation(state.metadata, field.id, field.aggregation)
-        return metricId ? [metricId] : []
+        return [buildRuntimeMetricId(field, lookup)]
       }
 
       return []
@@ -95,15 +98,38 @@ export function buildVisualQueryRequest(state: BuildVisualQueryRequestState): Vi
   }
 }
 
-function findMetricForAggregation(
-  metadata: DatasetMetadataResponse | null,
-  fieldId: string,
-  aggregation: NonNullable<SelectedReportItem['aggregation']>
-) {
-  const expectedFormula = `${aggregation}([${fieldId}])`.toLowerCase()
-  return metadata?.metrics.find((metric) =>
-    metric.formula.trim().toLowerCase() === expectedFormula
-  )?.metricId ?? null
+function addRuntimeMetricLookups(lookup: Map<string, FieldLookup>, selectedFields: SelectedField[]) {
+  selectedFields.forEach((selectedField) => {
+    if (!selectedField.aggregation) return
+
+    const source = lookup.get(selectedField.id)
+    if (!source) return
+
+    const reportItem: SelectedReportItem = {
+      id: selectedField.id,
+      kind: source.kind,
+      role: source.role as SelectedReportItem['role'],
+      displayName: selectedField.displayName ?? selectedField.columnName,
+      tableId: source.tableId,
+      dataType: source.dataType,
+      isHidden: source.isHidden,
+      isDraggable: source.isDraggable,
+      placement: selectedField.placement,
+      aggregation: selectedField.aggregation,
+    }
+    const metricId = buildRuntimeMetricId(reportItem, lookup)
+
+    lookup.set(metricId, {
+      displayName: buildRuntimeMetricDisplayName(reportItem.displayName, selectedField.aggregation),
+      tableId: source.tableId,
+      physicalColumn: source.physicalColumn,
+      dataType: selectedField.aggregation.startsWith('COUNT') ? 'integer' : source.dataType,
+      kind: 'metric',
+      role: 'metric',
+      isHidden: false,
+      isDraggable: true,
+    })
+  })
 }
 
 function buildLookup(metadata: DatasetMetadataResponse | null) {
@@ -112,6 +138,9 @@ function buildLookup(metadata: DatasetMetadataResponse | null) {
   metadata?.tables.forEach((table) => {
     table.fields.forEach((field) => {
       lookup.set(field.fieldId, {
+        displayName: field.displayName,
+        tableId: field.tableId,
+        physicalColumn: field.physicalColumn,
         dataType: field.dataType,
         kind: field.isDerived || field.role === 'derived_field' ? 'derived' : 'field',
         role: field.isDerived ? 'derived_field' : field.role,
@@ -123,6 +152,9 @@ function buildLookup(metadata: DatasetMetadataResponse | null) {
 
   metadata?.metrics.forEach((metric) => {
     lookup.set(metric.metricId, {
+      displayName: metric.displayName,
+      tableId: metric.baseTableId,
+      physicalColumn: metric.metricId,
       dataType: metric.dataType,
       kind: 'metric',
       role: 'metric',
@@ -150,6 +182,52 @@ function toSelectedReportItem(field: SelectedField, lookup: Map<string, FieldLoo
     placement: field.placement,
     aggregation: field.aggregation,
   }
+}
+
+export function buildRuntimeMetricId(
+  field: SelectedReportItem,
+  lookup: Map<string, FieldLookup>
+) {
+  const metadata = lookup.get(field.id)
+  const tableId = metadata?.tableId ?? field.tableId ?? field.id.split('.')[0] ?? ''
+  const physicalColumn = metadata?.physicalColumn ?? field.id.split('.').at(-1) ?? field.displayName
+
+  return `metric.${field.aggregation!.toLowerCase()}_${normalizeMetricIdPart(tableId)}_${normalizeMetricIdPart(physicalColumn)}`
+}
+
+export function buildRuntimeMetricIdFromMetadata(
+  fieldId: string,
+  aggregation: NonNullable<SelectedReportItem['aggregation']>,
+  metadata: DatasetMetadataResponse | null
+) {
+  const field = metadata?.tables.flatMap((table) => table.fields).find((item) => item.fieldId === fieldId)
+  if (!field) return null
+
+  return `metric.${aggregation.toLowerCase()}_${normalizeMetricIdPart(field.tableId)}_${normalizeMetricIdPart(field.physicalColumn)}`
+}
+
+export function buildRuntimeMetricDisplayName(
+  fieldName: string,
+  aggregation: NonNullable<SelectedReportItem['aggregation']>
+) {
+  switch (aggregation) {
+    case 'SUM':
+      return `Sum ${fieldName}`
+    case 'AVG':
+      return `Average ${fieldName}`
+    case 'MIN':
+      return `Min ${fieldName}`
+    case 'MAX':
+      return `Max ${fieldName}`
+    case 'COUNT':
+      return `Count ${fieldName}`
+    case 'COUNT_DISTINCT':
+      return `Distinct ${fieldName} Count`
+  }
+}
+
+function normalizeMetricIdPart(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
 }
 
 function normalizeFilter(filter: ReportFilterDraft, lookup: Map<string, FieldLookup>) {

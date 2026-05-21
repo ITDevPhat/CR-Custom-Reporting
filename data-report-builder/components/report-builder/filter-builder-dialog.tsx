@@ -136,7 +136,7 @@ function DraggableFieldItem({ field, onClick }: { field: FilterableField; onClic
     if (field.sourceType !== 'column' && field.sourceType !== 'field') {
       return (
         <Badge variant="secondary" className="text-[10px] px-1.5 py-0 capitalize">
-          {field.sourceType}
+          {field.sourceType === 'derived' ? 'calculated column' : field.sourceType}
         </Badge>
       )
     }
@@ -852,7 +852,11 @@ export function FilterBuilderDialog({
         tableName: sf.tableName,
         dataType: sf.dataType,
         sourceType: sf.kind,
-        sourceInfo: sf.kind === 'column' || sf.kind === 'field' ? fieldId : sf.kind,
+        sourceInfo: sf.kind === 'column' || sf.kind === 'field'
+          ? fieldId
+          : sf.kind === 'derived'
+            ? 'calculated column'
+            : sf.kind,
         fieldKind,
       })
     })

@@ -49,9 +49,14 @@ import {
   type MetadataMetric,
 } from '@/lib/report-metadata-api'
 import { type SqlServerConnectionRequest } from '@/lib/connections-api'
-import { buildVisualQueryRequest as buildRuntimeVisualQueryRequest } from '@/lib/build-visual-query-request'
+import {
+  buildRuntimeMetricDisplayName,
+  buildRuntimeMetricIdFromMetadata,
+  buildVisualQueryRequest as buildRuntimeVisualQueryRequest,
+} from '@/lib/build-visual-query-request'
 import { useActiveSemanticModel } from '@/hooks/use-active-semantic-model'
 import {
+  createCalculatedObject,
   createDerivedField,
   createMetric,
   saveReportDefinition,
@@ -65,6 +70,11 @@ import {
 
 const USE_DEMO_SCHEMA = process.env.NEXT_PUBLIC_USE_DEMO_SCHEMA === 'true'
 const DEFAULT_DATASET_ID = USE_DEMO_SCHEMA ? 'sales' : null
+
+function formatExpressionErrors(errors: ExpressionValidationResult['errors']) {
+  if (!errors?.length) return 'Expression validation failed'
+  return errors.map((error) => typeof error === 'string' ? error : `${error.code}: ${error.message}`).join(' ')
+}
 
 function normalizeFilterValue(
   filter: ReportFilterDraft,
@@ -132,6 +142,10 @@ function getKindBadgeColor(kind: SelectedField['kind']) {
     case 'derived':
       return 'bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-300'
   }
+}
+
+function getKindLabel(kind: SelectedField['kind']) {
+  return kind === 'derived' ? 'calculated column' : kind
 }
 
 export default function ReportBuilderPage() {
@@ -273,16 +287,49 @@ export default function ReportBuilderPage() {
       dataType: metric.dataType,
     }))
 
-    return [...fieldOptions, ...metricOptions]
-  }, [metadata])
+    const runtimeMetricOptions: ReportFilterFieldOption[] = selectedFields
+      .flatMap((field) => {
+        if (!field.aggregation || field.kind === 'metric' || field.role === 'metric') return []
+
+        const metricId = buildRuntimeMetricIdFromMetadata(
+          field.id,
+          field.aggregation,
+          metadata
+        )
+
+        return metricId
+          ? [{
+              fieldId: metricId,
+              label: `Measures / ${buildRuntimeMetricDisplayName(field.displayName ?? field.columnName, field.aggregation)}`,
+              type: 'metric' as const,
+              dataType: field.aggregation.startsWith('COUNT') ? 'integer' : field.dataType,
+            }]
+          : []
+      })
+
+    const seen = new Set<string>()
+    return [...fieldOptions, ...metricOptions, ...runtimeMetricOptions].filter((option) => {
+      if (seen.has(option.fieldId)) return false
+      seen.add(option.fieldId)
+      return true
+    })
+  }, [metadata, selectedFields])
 
   const sortFieldOptions = useMemo(() => {
     const selectedIds = selectedFields
-      .filter((field) => field.kind === 'field' || (field.kind === 'metric' && !field.calculatedField))
-      .map((field) => field.id)
+      .flatMap((field) => {
+        if (field.aggregation && metadata) {
+          const metricId = buildRuntimeMetricIdFromMetadata(field.id, field.aggregation, metadata)
+          return metricId ? [metricId] : []
+        }
+
+        return field.kind === 'field' || (field.kind === 'metric' && !field.calculatedField)
+          ? [field.id]
+          : []
+      })
 
     return semanticFilterOptions.filter((option) => selectedIds.includes(option.fieldId))
-  }, [selectedFields, semanticFilterOptions])
+  }, [metadata, selectedFields, semanticFilterOptions])
 
   const addMetric = useCallback((metric: MetadataMetric) => {
     if (selectedFields.some(item => item.id === metric.metricId)) {
@@ -391,49 +438,17 @@ export default function ReportBuilderPage() {
         const formula = expression
         if (!formula) throw new Error('Calculated measure expression is required.')
         const validationResult: ExpressionValidationResult = await validateExpression(datasetId, { expression: formula, targetKind: 'auto' })
-        if (!validationResult.valid) throw new Error(validationResult.errors.join(' '))
-        const baseFieldRef = validationResult.dependencies.find((dep) => !dep.toLowerCase().startsWith('metric.'))
-        const baseField = baseFieldRef
-          ? metadata?.tables.flatMap((table) => table.fields).find((f) => f.fieldId.toLowerCase() === baseFieldRef.toLowerCase())
-          : undefined
-        const fallbackBaseTable = metadata?.tables[0]?.tableId ?? ''
-
-        if (validationResult.detectedKind === 'calculated_measure') {
-          const body: MetricRequest = {
-            displayName: field.name,
-            formula,
-            baseTableId: baseField?.tableId ?? fallbackBaseTable,
-            aggregationBehavior: 'calculated',
-            dataType: 'decimal',
-            format: 'percentage',
-            isHidden: false,
-            isDraggable: true,
-          }
-          if (!body.baseTableId) throw new Error('Unable to infer base table for calculated measure.')
-          const validation = await validateMetric(datasetId, body)
-          if (!validation.valid) throw new Error(validation.errors.join(' '))
-          await createMetric(datasetId, body)
-          await refreshMetadata()
-          toast.success(`Calculated measure "${field.name}" created`)
-          return
-        }
-
-        if (!baseField?.tableId) throw new Error('Unable to infer base table for calculated column.')
-        const body: DerivedFieldRequest = {
+        if (!validationResult.valid) throw new Error(formatExpressionErrors(validationResult.errors))
+        const created = await createCalculatedObject(datasetId, {
           displayName: field.name,
-          baseTableId: baseField.tableId,
           expression: formula,
-          dataType: 'nvarchar',
-          semanticType: 'category',
           format: 'general',
           isHidden: false,
           isDraggable: true,
-        }
-        const validation = await validateDerivedField(datasetId, body)
-        if (!validation.valid) throw new Error(validation.errors.join(' '))
-        await createDerivedField(datasetId, body)
+          targetKind: 'auto',
+        })
         await refreshMetadata()
-        toast.success(`Derived field "${field.name}" created`)
+        toast.success(`${created.detectedKind === 'calculated_measure' ? 'Calculated measure' : 'Calculated column'} "${field.name}" created`)
         return
       }
 
@@ -931,7 +946,7 @@ export default function ReportBuilderPage() {
                     getKindBadgeColor(activeDragData.calculatedField.type)
                   )}
                 >
-                  {activeDragData.calculatedField.type}
+                  {getKindLabel(activeDragData.calculatedField.type)}
                 </Badge>
               </>
             )}
@@ -997,7 +1012,7 @@ export default function ReportBuilderPage() {
                 >
                   {activeDragData.field.kind === 'field' || activeDragData.field.kind === 'column'
                     ? activeDragData.field.dataType 
-                    : activeDragData.field.kind}
+                    : getKindLabel(activeDragData.field.kind)}
                 </Badge>
               </>
             )}

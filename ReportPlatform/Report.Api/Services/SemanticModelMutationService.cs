@@ -2,6 +2,8 @@ using System.Text.RegularExpressions;
 using Report.Contracts.Semantic;
 using Report.Metadata.Models;
 using Report.Metadata.Stores;
+using Report.QueryEngine.Expressions.Validation;
+using Report.QueryEngine.Validation;
 
 namespace Report.Api.Services;
 
@@ -11,11 +13,16 @@ public sealed partial class SemanticModelMutationService
     private static readonly HashSet<string> Aggregations = new(StringComparer.OrdinalIgnoreCase) { "none", "SUM", "COUNT", "COUNT_DISTINCT", "AVG", "MIN", "MAX" };
     private readonly ISemanticModelStore _modelStore;
     private readonly IDatasetRegistry _datasetRegistry;
+    private readonly SemanticExpressionValidationService _expressionValidator;
 
-    public SemanticModelMutationService(ISemanticModelStore modelStore, IDatasetRegistry datasetRegistry)
+    public SemanticModelMutationService(
+        ISemanticModelStore modelStore,
+        IDatasetRegistry datasetRegistry,
+        SemanticExpressionValidationService expressionValidator)
     {
         _modelStore = modelStore;
         _datasetRegistry = datasetRegistry;
+        _expressionValidator = expressionValidator;
     }
 
     public async Task<SemanticModel> LoadAsync(string datasetId, CancellationToken ct)
@@ -167,6 +174,124 @@ public sealed partial class SemanticModelMutationService
         Save(model);
     }
 
+    public async Task<CreateCalculatedObjectResponse> CreateCalculatedObjectAsync(
+        string datasetId,
+        CreateCalculatedObjectRequest request,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(request.DisplayName))
+        {
+            throw new SemanticQueryValidationException(new Dictionary<string, string[]>
+            {
+                ["displayName"] = ["Calculated object display name is required."]
+            });
+        }
+
+        var model = await LoadAsync(datasetId, ct);
+        var candidateId = BuildCalculatedObjectId(request.DisplayName, request.TargetKind);
+        var validation = _expressionValidator.Validate(model, request.Expression, request.TargetKind, candidateId);
+        if (!validation.Valid)
+        {
+            throw new SemanticQueryValidationException(new Dictionary<string, string[]>
+            {
+                ["errorCode"] = [validation.Errors.FirstOrDefault()?.Code ?? "INVALID_EXPRESSION"],
+                ["expression"] = validation.Errors.Select(e => $"{e.Code}: {e.Message}").ToArray()
+            });
+        }
+
+        var id = BuildCalculatedObjectId(request.DisplayName, validation.DetectedKind);
+        if (validation.DetectedKind.Equals("calculated_measure", StringComparison.OrdinalIgnoreCase))
+        {
+            if (model.Metrics.Any(m => m.MetricId.Equals(id, StringComparison.OrdinalIgnoreCase)))
+            {
+                id = $"metric.{Slug(request.DisplayName)}_{Guid.NewGuid():N}";
+            }
+
+            model.Metrics.Add(new SemanticMetric
+            {
+                MetricId = id,
+                DatasetId = datasetId,
+                DisplayName = request.DisplayName,
+                Formula = request.Expression,
+                BaseTableId = validation.BoundExpression?.BaseTableIds.FirstOrDefault() ?? "",
+                AggregationBehavior = "calculated",
+                DataType = validation.DataType,
+                Format = request.Format ?? "general",
+                IsHidden = request.IsHidden,
+                IsDraggable = request.IsDraggable
+            });
+            model.SemanticObjects.Add(CreateSemanticObject(
+                id,
+                datasetId,
+                null,
+                request,
+                SemanticObjectType.CalculatedMeasure,
+                ExpressionScope.Aggregate,
+                validation.DataType,
+                validation.Dependencies));
+        }
+        else
+        {
+            var baseTableId = validation.BoundExpression?.ReferencedFields
+                .Select(f => f.TableId)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .SingleOrDefault();
+            if (string.IsNullOrWhiteSpace(baseTableId))
+            {
+                throw new SemanticQueryValidationException(new Dictionary<string, string[]>
+                {
+                    ["errorCode"] = ["AMBIGUOUS_REFERENCE"],
+                    ["expression"] = ["Calculated column must reference fields from exactly one table."]
+                });
+            }
+
+            id = $"{Slug(baseTableId)}.{Slug(request.DisplayName)}";
+            if (model.Fields.Any(f => f.FieldId.Equals(id, StringComparison.OrdinalIgnoreCase)))
+            {
+                id = $"{Slug(baseTableId)}.{Slug(request.DisplayName)}_{Guid.NewGuid():N}";
+            }
+
+            model.Fields.Add(new SemanticField
+            {
+                FieldId = id,
+                DatasetId = datasetId,
+                TableId = baseTableId,
+                PhysicalTable = baseTableId,
+                PhysicalColumn = Slug(request.DisplayName),
+                DisplayName = request.DisplayName,
+                DataType = validation.DataType,
+                Role = "calculated_field",
+                Grain = "",
+                SemanticType = "calculated",
+                Format = request.Format ?? "general",
+                IsHidden = request.IsHidden,
+                IsDraggable = request.IsDraggable,
+                Expression = request.Expression,
+                BaseTableId = baseTableId,
+                IsDerived = true
+            });
+            model.SemanticObjects.Add(CreateSemanticObject(
+                id,
+                datasetId,
+                baseTableId,
+                request,
+                SemanticObjectType.CalculatedColumn,
+                ExpressionScope.Row,
+                validation.DataType,
+                validation.Dependencies));
+        }
+
+        Save(model);
+        return new CreateCalculatedObjectResponse
+        {
+            Id = id,
+            DetectedKind = validation.DetectedKind,
+            Scope = validation.DetectedScope.ToString(),
+            DataType = validation.DataType,
+            Dependencies = validation.Dependencies
+        };
+    }
+
     private void Save(SemanticModel model) => _datasetRegistry.SaveExisting(model.DatasetId, model.DisplayName, model.ConnectionId, model);
 
     private static IEnumerable<string> ValidateMetric(SemanticModel model, MetricRequest request)
@@ -193,7 +318,7 @@ public sealed partial class SemanticModelMutationService
     {
         if (string.IsNullOrWhiteSpace(request.DisplayName))
         {
-            yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived field display name is required." };
+            yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Calculated column display name is required." };
         }
         if (AggregateRefs().IsMatch(request.Expression) || MetricRef().IsMatch(request.Expression))
         {
@@ -201,10 +326,10 @@ public sealed partial class SemanticModelMutationService
         }
         if (RawSqlTokens().IsMatch(request.Expression))
         {
-            yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived expression contains unsupported SQL tokens." };
+            yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Calculated column expression contains unsupported SQL tokens." };
         }
         var refs = FieldRefs().Matches(request.Expression).Select(m => m.Groups[1].Value).ToList();
-        if (refs.Count == 0) yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived expression must reference at least one field." };
+        if (refs.Count == 0) yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Calculated column expression must reference at least one field." };
         foreach (var fieldId in refs)
         {
             if (fieldId.StartsWith("metric.metric.", StringComparison.OrdinalIgnoreCase))
@@ -214,12 +339,12 @@ public sealed partial class SemanticModelMutationService
             }
             if (fieldId.StartsWith("metric.", StringComparison.OrdinalIgnoreCase))
             {
-                yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived fields cannot reference measures or aggregate functions. Create a measure instead." };
+                yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Calculated columns cannot reference measures or aggregate functions. Create a measure instead." };
                 continue;
             }
             var field = model.Fields.FirstOrDefault(f => f.FieldId.Equals(fieldId, StringComparison.OrdinalIgnoreCase));
             if (field is null) yield return new ValidationMessage { Code = "UNKNOWN_FIELD_REFERENCE", Message = $"Unknown field reference: {fieldId}." };
-            else if (!field.TableId.Equals(request.BaseTableId, StringComparison.OrdinalIgnoreCase)) yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Derived field references must belong to the same base table." };
+            else if (!field.TableId.Equals(request.BaseTableId, StringComparison.OrdinalIgnoreCase)) yield return new ValidationMessage { Code = "INVALID_DERIVED_FIELD_EXPRESSION", Message = "Calculated column references must belong to the same base table." };
         }
     }
 
@@ -233,6 +358,35 @@ public sealed partial class SemanticModelMutationService
 
     private static bool IsNumeric(string dataType) => dataType.ToLowerInvariant() is "tinyint" or "smallint" or "int" or "bigint" or "decimal" or "numeric" or "float" or "real" or "money";
     private static string Slug(string value) => SlugCleaner().Replace(value.ToLowerInvariant(), "_").Trim('_');
+    private static string BuildCalculatedObjectId(string displayName, string kind) =>
+        kind.Equals("calculated_measure", StringComparison.OrdinalIgnoreCase)
+            ? $"metric.{Slug(displayName)}"
+            : Slug(displayName);
+    private static SemanticObject CreateSemanticObject(
+        string id,
+        string datasetId,
+        string? tableId,
+        CreateCalculatedObjectRequest request,
+        SemanticObjectType type,
+        ExpressionScope scope,
+        string dataType,
+        List<string> dependencies) => new()
+        {
+            Id = id,
+            DatasetId = datasetId,
+            TableId = tableId,
+            DisplayName = request.DisplayName,
+            ObjectType = type,
+            Scope = scope,
+            Expression = request.Expression,
+            DataType = dataType,
+            Format = request.Format,
+            Dependencies = dependencies,
+            IsHidden = request.IsHidden,
+            IsDraggable = request.IsDraggable,
+            CreatedUtc = DateTime.UtcNow,
+            UpdatedUtc = DateTime.UtcNow
+        };
 
     [GeneratedRegex(@"\[([^\]]+)\]")]
     private static partial Regex FieldRefs();

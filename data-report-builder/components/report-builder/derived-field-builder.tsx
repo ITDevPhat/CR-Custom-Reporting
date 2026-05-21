@@ -58,7 +58,7 @@ import {
 } from '@/lib/schema-data'
 import { type DatasetMetadataResponse } from '@/lib/report-metadata-api'
 import { getFieldsForDerivedExpression } from '@/lib/metadata-selectors'
-import { validateExpression, createMetric, createDerivedField } from '@/lib/semantic-management-api'
+import { validateExpression, type ExpressionValidationMessage } from '@/lib/semantic-management-api'
 
 // Token types for the expression builder
 export type ExpressionTokenType = 'field' | 'metric' | 'operator' | 'number' | 'string' | 'paren' | 'function' | 'column' | 'measure' | 'derived' | 'constant'
@@ -90,6 +90,10 @@ const METRIC_TOKEN_PATTERN = /\[\s*metric\./i
 
 const AGGREGATE_FUNCTIONS = new Set(['SUM', 'AVG', 'COUNT', 'COUNT_DISTINCT', 'MIN', 'MAX'])
 const createId = () => `token-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+const formatValidationErrors = (errors: ExpressionValidationMessage[] | string[] | undefined) => {
+  if (!errors?.length) return 'Expression validation failed'
+  return errors.map((error) => typeof error === 'string' ? error : `${error.code}: ${error.message}`).join(', ')
+}
 function toSemanticToken(item: { metricId?: string; fieldId?: string; kind?: string; type?: string }) {
   if (item.metricId) return `[${item.metricId}]`
   if (item.fieldId) return `[${item.fieldId}]`
@@ -134,7 +138,7 @@ const logicalOperators = [
 interface DerivedFieldExpressionBuilderProps {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSave: (field: CalculatedField) => void
+  onSave: (field: CalculatedField) => void | Promise<void>
   existingMeasures: CalculatedField[]
   existingDerivedFields: CalculatedField[]
   metadata: DatasetMetadataResponse | null
@@ -166,12 +170,13 @@ function DraggablePaletteItem({
     id: `palette-${id}`,
     data: {
       type: 'palette-item',
-      kind: type === 'column' ? 'field' : type === 'measure' ? 'metric' : type === 'operator' ? 'operator' : undefined,
-      fieldId: type === 'column' ? label : undefined,
+      kind: type === 'column' || type === 'derived' ? 'field' : type === 'measure' ? 'metric' : type === 'operator' ? 'operator' : undefined,
+      fieldId: type === 'column' || type === 'derived' ? id : undefined,
       metricId: type === 'measure' ? id : undefined,
       displayName: label,
       tableId: sublabel,
       value: tokenValue ?? label,
+      ...token,
     },
   })
   const handleInsert = () => {
@@ -180,7 +185,7 @@ function DraggablePaletteItem({
       onSelect?.(value === '(' || value === ')' ? { id: createId(), kind: 'paren', value } : { id: createId(), kind: 'operator', operator: value as ArithmeticOperator })
       return
     }
-    if (type === 'column') {
+    if (type === 'column' || type === 'derived') {
       onSelect?.({ id: createId(), kind: 'field', fieldId: id, displayName: label, tableId: sublabel, ...token })
       return
     }
@@ -579,11 +584,11 @@ function ExpressionPalette({
 
             <div className="border-t mt-3 pt-3">
               <p className="text-xs text-muted-foreground mb-2 px-1">
-                Existing derived fields
+                Existing calculated columns
               </p>
               {existingDerivedFields.length === 0 ? (
                 <p className="text-xs text-muted-foreground px-2 py-4 text-center">
-                  No derived fields created yet
+                  No calculated columns created yet
                 </p>
               ) : (
                 existingDerivedFields.map((derived) => (
@@ -591,11 +596,18 @@ function ExpressionPalette({
                     key={derived.id}
                     id={derived.id}
                     type="derived"
-                    label={`[${derived.name}]`}
-                    sublabel={derived.expression?.substring(0, 30)}
-                    badge="Derived"
+                    label={derived.name}
+                    sublabel={derived.expression || derived.id}
+                    badge="Calculated column"
                     badgeColor="bg-pink-100 text-pink-700 dark:bg-pink-900 dark:text-pink-300"
-                    tokenValue={`[${derived.name}]`}
+                    tokenValue={`[${derived.id}]`}
+                    token={{
+                      kind: 'field',
+                      fieldId: derived.id,
+                      displayName: derived.name,
+                      semanticType: 'calculated',
+                      role: 'derived_field',
+                    }}
                     onSelect={onInsertToken}
                   />
                 ))
@@ -655,7 +667,7 @@ export function DerivedFieldExpressionBuilder({
 
   useEffect(() => {
     if (open) {
-      console.log('Derived builder fields', getFieldsForDerivedExpression(metadata).map(f => f.fieldId))
+      console.log('Calculated column builder fields', getFieldsForDerivedExpression(metadata).map(f => f.fieldId))
     }
   }, [open, metadata])
 
@@ -838,7 +850,7 @@ export function DerivedFieldExpressionBuilder({
       return
     }
     if (!name.trim()) {
-      toast.error('Please enter a derived field name')
+      toast.error('Please enter a calculated column name')
       return
     }
     const serializedExpression = mode === 'formula' ? formulaText.trim() : tokens.map(serializeExpressionToken).filter(Boolean).join(' ')
@@ -856,18 +868,15 @@ export function DerivedFieldExpressionBuilder({
     try {
       const validation = await validateExpression(metadata.datasetId, { expression: serializedExpression, targetKind: 'auto' })
       if (!validation.valid) {
-        toast.error(validation.errors[0] ?? 'Expression validation failed')
+        toast.error(formatValidationErrors(validation.errors))
         return
       }
-      if (validation.detectedKind === 'calculated_measure') {
-        await createMetric(metadata.datasetId, { displayName: name.trim(), formula: serializedExpression, baseTableId: metadata.tables[0]?.tableId ?? '', aggregationBehavior: 'calculated', dataType: 'decimal', format: 'general', isHidden: false, isDraggable: true })
-        onSave({ id: `metric-${Date.now()}`, name: name.trim(), type: 'measure', expression: serializedExpression })
-        toast.success(`Calculated measure "${name.trim()}" created`)
-      } else {
-        await createDerivedField(metadata.datasetId, { displayName: name.trim(), baseTableId: metadata.tables[0]?.tableId ?? '', expression: serializedExpression, dataType: 'nvarchar', semanticType: 'dimension', format: 'general', isHidden: false, isDraggable: true })
-        onSave({ id: `derived-${Date.now()}`, name: name.trim(), type: 'derived', expression: serializedExpression })
-        toast.success(`Calculated column "${name.trim()}" created`)
-      }
+      await onSave({
+        id: `calculated-${Date.now()}`,
+        name: name.trim(),
+        type: 'derived',
+        expression: serializedExpression,
+      })
       setName('')
       setTokens([])
       setSearchQuery('')
@@ -881,9 +890,9 @@ export function DerivedFieldExpressionBuilder({
     try {
       if (!metadata?.datasetId) throw new Error('No dataset selected.')
       const result = await validateExpression(metadata.datasetId, { expression: expressionString, targetKind: 'auto' })
-      setValidationMessage(result.valid ? `Valid (${result.detectedKind}) • SQL: ${result.compiledSqlPreview}` : `Invalid: ${result.errors.join(', ')}`)
+      setValidationMessage(result.valid ? `Valid (${result.detectedKind}) • SQL: ${result.sqlPreview ?? result.compiledSqlPreview}` : `Invalid: ${formatValidationErrors(result.errors)}`)
       if (result.valid) toast.success('Expression is valid')
-      else toast.error(result.errors[0] ?? 'Expression invalid')
+      else toast.error(formatValidationErrors(result.errors))
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Validation failed'
       setValidationMessage(message)
@@ -905,14 +914,14 @@ export function DerivedFieldExpressionBuilder({
         <DialogHeader className="px-6 pt-6 pb-4 border-b flex-shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <FunctionSquare className="h-5 w-5 text-pink-600" />
-            Create Calculated Field
+            Create Calculated Column
           </DialogTitle>
           <p className="text-sm text-muted-foreground">
             Drag fields, measures, and operators to build an expression.
           </p>
           {hasAggregateExpression && (
             <p className="text-sm text-amber-600">
-              This expression uses measures/aggregates. Save it as a Measure, not a Derived Field.
+              This expression uses measures/aggregates. Save it as a Measure, not a Calculated Column.
             </p>
           )}
         </DialogHeader>
@@ -925,7 +934,7 @@ export function DerivedFieldExpressionBuilder({
             <Button size="sm" variant="outline" onClick={handleValidate}>Validate Expression</Button>
           </div>
           <Label htmlFor="derivedName" className="text-sm font-medium">
-            Calculated Field Name
+            Calculated Column Name
           </Label>
           <Input
             id="derivedName"
