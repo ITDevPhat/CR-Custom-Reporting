@@ -43,6 +43,7 @@ public sealed class ValidationResponse
     public bool Valid { get; init; }
     public List<string> Errors { get; init; } = [];
     public List<string> Warnings { get; init; } = [];
+    public List<ValidationMessage> Details { get; init; } = [];
 }
 
 public sealed class GrainValidationResult

@@ -360,6 +360,11 @@ export default function ReportBuilderPage() {
   const addCalculatedField = useCallback(async (field: CalculatedField) => {
     try {
       if (!datasetId) throw new Error('Connect a source before creating semantic fields.')
+      const expression = field.expression?.trim() ?? ''
+      const isCalculatedMeasureExpression = field.type === 'derived' && (
+        /\b(SUM|AVG|COUNT|COUNT_DISTINCT|MIN|MAX)\s*\(/i.test(expression) ||
+        /\[\s*metric\./i.test(expression)
+      )
 
       if (field.type === 'measure') {
         const source = findMetadataField(field.sourceTable, field.sourceColumn)
@@ -382,6 +387,10 @@ export default function ReportBuilderPage() {
         return
       }
 
+      if (field.type === 'derived' && isCalculatedMeasureExpression) {
+        throw new Error('This expression uses measures. Save it as a Measure, not a Derived Field.')
+      }
+
       if (field.type === 'derived') {
         const baseTable = metadata?.tables[0]
         const firstField = baseTable?.fields[0]
@@ -400,6 +409,7 @@ export default function ReportBuilderPage() {
         if (!validation.valid) throw new Error(validation.errors.join(' '))
         await createDerivedField(datasetId, body)
         await refreshMetadata()
+        toast.success(`Derived field "${field.name}" created`)
         return
       }
 
