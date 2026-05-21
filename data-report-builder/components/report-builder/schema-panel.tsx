@@ -499,6 +499,7 @@ export function SchemaPanel({
   const metrics = calculatedFields.filter(f => f.type === 'metric')
   const measures = calculatedFields.filter(f => f.type === 'measure')
   const derived = calculatedFields.filter(f => f.type === 'derived')
+  const hasDataset = metadataTables.length > 0
 
   return (
     <div className="h-full flex flex-col bg-card border-r border-border overflow-hidden">
@@ -659,6 +660,8 @@ export function SchemaPanel({
                     size="sm"
                     className="w-full justify-start text-xs h-7 text-muted-foreground hover:text-foreground"
                     onClick={() => setMetricModalOpen(true)}
+                    disabled={!hasDataset}
+                    title={!hasDataset ? 'Connect a source before creating calculated fields.' : undefined}
                   >
                     <Plus className="h-3 w-3 mr-1" />
                     New Metric
@@ -698,6 +701,8 @@ export function SchemaPanel({
                     size="sm"
                     className="w-full justify-start text-xs h-7 text-muted-foreground hover:text-foreground"
                     onClick={() => setMeasureModalOpen(true)}
+                    disabled={!hasDataset}
+                    title={!hasDataset ? 'Connect a source before creating calculated fields.' : undefined}
                   >
                     <Plus className="h-3 w-3 mr-1" />
                     New Measure
@@ -737,6 +742,8 @@ export function SchemaPanel({
                     size="sm"
                     className="w-full justify-start text-xs h-7 text-muted-foreground hover:text-foreground"
                     onClick={() => setDerivedModalOpen(true)}
+                    disabled={!hasDataset}
+                    title={!hasDataset ? 'Connect a source before creating calculated fields.' : undefined}
                   >
                     <Plus className="h-3 w-3 mr-1" />
                     New Derived Field
@@ -758,6 +765,8 @@ export function SchemaPanel({
         open={measureModalOpen}
         onOpenChange={setMeasureModalOpen}
         onSave={onAddCalculatedField}
+        tables={metadataTables}
+        disabled={!hasDataset}
       />
       <DerivedFieldExpressionBuilder
         open={derivedModalOpen}
@@ -765,6 +774,7 @@ export function SchemaPanel({
         onSave={onAddCalculatedField}
         existingMeasures={measures}
         existingDerivedFields={derived}
+        metadata={metadataTables.length ? { datasetId: '', displayName: '', connectionId: '', tables: metadataTables, metrics: metadataMetrics, relationships: [] } : null}
       />
     </div>
   )

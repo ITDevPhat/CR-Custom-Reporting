@@ -19,7 +19,7 @@ public sealed class DatasetRelationshipService
     public async Task<List<RelationshipDto>> ListAsync(string datasetId, CancellationToken ct)
     {
         var model = await LoadAndEnsureRegisteredAsync(datasetId, ct);
-        return model.Relationships.Select(ToDto).ToList();
+        return BuildDtos(model.Relationships);
     }
 
     public async Task<RelationshipDto> CreateAsync(string datasetId, CreateRelationshipRequest request, CancellationToken ct)
@@ -28,7 +28,12 @@ public sealed class DatasetRelationshipService
         Validate(model, request);
         var relationship = BuildRelationship(datasetId, request, $"rel_{Guid.NewGuid():N}", "manual", 1.0m);
         model.Relationships.Add(relationship);
-        return ToDto(relationship);
+        if (relationship.IsActive)
+        {
+            ApplyActivationRule(model.Relationships, relationship.RelationshipId);
+        }
+
+        return BuildDtos(model.Relationships).First(r => r.RelationshipId == relationship.RelationshipId);
     }
 
     public async Task<RelationshipDto> UpdateAsync(string datasetId, string relationshipId, UpdateRelationshipRequest request, CancellationToken ct)
@@ -39,7 +44,19 @@ public sealed class DatasetRelationshipService
         Validate(model, request, relationshipId);
         var updated = BuildRelationship(datasetId, request, relationshipId, model.Relationships[index].Source, model.Relationships[index].Confidence);
         model.Relationships[index] = updated;
-        return ToDto(updated);
+        if (request.IsActive)
+        {
+            ApplyActivationRule(model.Relationships, relationshipId);
+        }
+
+        return BuildDtos(model.Relationships).First(r => r.RelationshipId == relationshipId);
+    }
+
+    public async Task<List<RelationshipDto>> ActivateAsync(string datasetId, string relationshipId, CancellationToken ct)
+    {
+        var model = await LoadAndEnsureRegisteredAsync(datasetId, ct);
+        ApplyActivationRule(model.Relationships, relationshipId);
+        return BuildDtos(model.Relationships);
     }
 
     public async Task DeleteAsync(string datasetId, string relationshipId, CancellationToken ct)
@@ -71,7 +88,9 @@ public sealed class DatasetRelationshipService
             }
         }
 
-        var dtos = detected.Select(ToDto).ToList();
+        NormalizeGroupActives(model.Relationships);
+
+        var dtos = BuildDtos(detected);
         return new AutodetectRelationshipsResponse
         {
             Relationships = dtos,
@@ -106,16 +125,6 @@ public sealed class DatasetRelationshipService
         if (from is null) throw new InvalidOperationException("From column was not found.");
         if (to is null) throw new InvalidOperationException("To column was not found.");
         if (!Compatible(from.DataType, to.DataType)) throw new InvalidOperationException("Relationship column data types are not compatible.");
-        if (request.IsActive && model.Relationships.Any(r => r.RelationshipId != relationshipId && r.IsActive && SameEndpoint(r, request)))
-        {
-            throw new InvalidOperationException("A duplicate active relationship already exists.");
-        }
-        if (request.IsActive && request.IsPrimary && model.Relationships.Any(r =>
-            r.RelationshipId != relationshipId && r.IsActive && r.IsPrimary &&
-            r.FromTableId == request.FromTableId && r.ToTableId == request.ToTableId))
-        {
-            throw new InvalidOperationException("Only one primary active relationship is allowed for the same table pair and direction.");
-        }
     }
 
     private static SemanticRelationship BuildRelationship(string datasetId, CreateRelationshipRequest request, string id, string source, decimal confidence)
@@ -133,7 +142,7 @@ public sealed class DatasetRelationshipService
             JoinType = request.JoinType,
             CrossFilterDirection = request.CrossFilterDirection,
             IsActive = request.IsActive && request.Cardinality != "N:N",
-            IsPrimary = request.IsPrimary,
+            IsPrimary = request.IsActive && request.IsPrimary,
             Source = source,
             Confidence = confidence,
             Status = request.IsActive && request.Cardinality != "N:N" ? warning is null ? "active" : "warning" : "inactive",
@@ -208,7 +217,7 @@ public sealed class DatasetRelationshipService
 
     private static bool IsNumber(string type) => type.ToLowerInvariant() is "tinyint" or "smallint" or "int" or "bigint" or "decimal" or "numeric" or "float" or "real" or "money";
 
-    public static RelationshipDto ToDto(SemanticRelationship relationship) => new()
+    public static RelationshipDto ToDto(SemanticRelationship relationship, int groupConflictCount = 1, int groupActiveCount = 0, string? groupWarning = null) => new()
     {
         RelationshipId = relationship.RelationshipId,
         DatasetId = relationship.DatasetId,
@@ -224,6 +233,85 @@ public sealed class DatasetRelationshipService
         Source = relationship.Source,
         Confidence = relationship.Confidence,
         Status = relationship.Status,
-        Warning = relationship.Warning
+        Warning = groupWarning ?? relationship.Warning,
+        RelationshipGroupKey = BuildGroupKey(relationship.FromTableId, relationship.ToTableId),
+        GroupConflictCount = groupConflictCount,
+        GroupActiveCount = groupActiveCount
     };
+
+    private static List<RelationshipDto> BuildDtos(IEnumerable<SemanticRelationship> relationships)
+    {
+        var list = relationships.ToList();
+        var groups = list.GroupBy(r => BuildGroupKey(r.FromTableId, r.ToTableId))
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        return list.Select(r =>
+        {
+            var key = BuildGroupKey(r.FromTableId, r.ToTableId);
+            var group = groups[key];
+            var active = group.Count(x => x.IsActive);
+            return ToDto(r, group.Count, active, BuildGroupWarning(group, r));
+        }).ToList();
+    }
+
+    private static void ApplyActivationRule(List<SemanticRelationship> relationships, string relationshipId)
+    {
+        var target = relationships.FirstOrDefault(r => r.RelationshipId == relationshipId)
+            ?? throw new InvalidOperationException($"Relationship '{relationshipId}' was not found.");
+        var key = BuildGroupKey(target.FromTableId, target.ToTableId);
+        for (var i = 0; i < relationships.Count; i++)
+        {
+            var rel = relationships[i];
+            if (BuildGroupKey(rel.FromTableId, rel.ToTableId) != key) continue;
+            var isTarget = rel.RelationshipId == relationshipId;
+            relationships[i] = new SemanticRelationship
+            {
+                RelationshipId = rel.RelationshipId,
+                DatasetId = rel.DatasetId,
+                FromTableId = rel.FromTableId,
+                FromColumn = rel.FromColumn,
+                ToTableId = rel.ToTableId,
+                ToColumn = rel.ToColumn,
+                JoinType = rel.JoinType,
+                Cardinality = rel.Cardinality,
+                CrossFilterDirection = rel.CrossFilterDirection,
+                IsActive = isTarget,
+                IsPrimary = isTarget,
+                Source = rel.Source,
+                Confidence = rel.Confidence,
+                Status = isTarget ? "active" : "inactive",
+                Warning = rel.Warning
+            };
+        }
+    }
+
+    private static void NormalizeGroupActives(List<SemanticRelationship> relationships)
+    {
+        foreach (var group in relationships.GroupBy(r => BuildGroupKey(r.FromTableId, r.ToTableId)))
+        {
+            SemanticRelationship? chosen = null;
+            if (group.Count() == 1) chosen = group.First();
+            else
+            {
+                chosen = group.FirstOrDefault(r => r.FromColumn.Equals("OrderDateKey", StringComparison.OrdinalIgnoreCase))
+                    ?? group.FirstOrDefault(r => r.FromColumn.Contains("Order", StringComparison.OrdinalIgnoreCase) && r.FromColumn.Contains("Date", StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (chosen is null) continue;
+            ApplyActivationRule(relationships, chosen.RelationshipId);
+        }
+    }
+
+    private static string BuildGroupKey(string fromTableId, string toTableId) => $"{fromTableId}->{toTableId}";
+
+    private static string? BuildGroupWarning(List<SemanticRelationship> group, SemanticRelationship current)
+    {
+        if (group.Count == 1) return current.Warning;
+        var active = group.Where(g => g.IsActive).ToList();
+        if (active.Count == 0) return "No active relationship is selected for this table pair.";
+        if (active.Count > 1) return "Multiple active relationships detected for this table pair. Make exactly one active.";
+        return active[0].RelationshipId == current.RelationshipId
+            ? "Multiple relationships exist for this table pair. Only this one is active."
+            : "Multiple relationships exist for this table pair. This relationship is inactive.";
+    }
 }
