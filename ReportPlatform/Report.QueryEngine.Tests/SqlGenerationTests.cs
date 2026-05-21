@@ -43,6 +43,33 @@ public sealed class SqlGenerationTests
     }
 
     [Fact]
+    public void AvgMetric_ShouldCompileAvgAggregation()
+    {
+        var result = _harness.Compile(Request(values: ["metric.avg_factsales_unitprice"], limit: 50));
+        AssertSqlContains(result.Sql.Sql, "AVG(f.UnitPrice) AS AverageUnitPrice");
+    }
+
+    [Fact]
+    public void MinAndMaxMetrics_ShouldCompileMinMaxAggregations()
+    {
+        var minResult = _harness.Compile(Request(values: ["metric.min_factsales_orderdate"], limit: 50));
+        AssertSqlContains(minResult.Sql.Sql, "MIN(f.OrderDate) AS MinOrderDate");
+
+        var maxResult = _harness.Compile(Request(values: ["metric.max_factsales_orderdate"], limit: 50));
+        AssertSqlContains(maxResult.Sql.Sql, "MAX(f.OrderDate) AS MaxOrderDate");
+    }
+
+    [Fact]
+    public void CountAndCountDistinctMetrics_ShouldCompileExpectedSql()
+    {
+        var countResult = _harness.Compile(Request(values: ["metric.count_factsales_orderid"], limit: 50));
+        AssertSqlContains(countResult.Sql.Sql, "COUNT(f.OrderID) AS CountOrderId");
+
+        var distinctResult = _harness.Compile(Request(values: ["metric.count_distinct_factsales_customerkey"], limit: 50));
+        AssertSqlContains(distinctResult.Sql.Sql, "COUNT(DISTINCT f.CustomerKey) AS DistinctCustomerKeyCount");
+    }
+
+    [Fact]
     public void MetricOnly_ShouldGenerateAggregateWithoutGroupBy()
     {
         var result = _harness.Compile(Request(values: ["metric.total_sales"]));

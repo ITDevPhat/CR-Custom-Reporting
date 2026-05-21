@@ -127,6 +127,11 @@ public sealed class QueryEngineTestHarness
                 Metric("metric.total_sales", "TotalSales", "SUM([factsales.salesamount])", "FactSales", "additive"),
                 Metric("metric.total_profit", "TotalProfit", "SUM([factsales.profitamount])", "FactSales", "additive"),
                 Metric("metric.sum_factsales_quantity", "SumQuantity", "SUM([factsales.quantity])", "FactSales", "additive"),
+                Metric("metric.avg_factsales_unitprice", "AverageUnitPrice", "AVG([factsales.unitprice])", "FactSales", "non_additive"),
+                Metric("metric.min_factsales_orderdate", "MinOrderDate", "MIN([factsales.orderdate])", "FactSales", "non_additive"),
+                Metric("metric.max_factsales_orderdate", "MaxOrderDate", "MAX([factsales.orderdate])", "FactSales", "non_additive"),
+                Metric("metric.count_factsales_orderid", "CountOrderId", "COUNT([factsales.orderid])", "FactSales", "additive"),
+                Metric("metric.count_distinct_factsales_customerkey", "DistinctCustomerKeyCount", "COUNT_DISTINCT([factsales.customerkey])", "FactSales", "non_additive"),
                 Metric("metric.profit_margin", "ProfitMargin", "SUM([factsales.profitamount]) / SUM([factsales.salesamount])", "FactSales", "ratio"),
                 Metric("metric.order_count", "OrderCount", "COUNT_DISTINCT([factsales.orderid])", "FactSales", "non_additive")
             ],
