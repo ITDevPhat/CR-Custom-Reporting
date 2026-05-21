@@ -50,6 +50,7 @@ import {
 } from '@/lib/report-metadata-api'
 import { type SqlServerConnectionRequest } from '@/lib/connections-api'
 import { buildVisualQueryRequest as buildRuntimeVisualQueryRequest } from '@/lib/build-visual-query-request'
+import { useActiveSemanticModel } from '@/hooks/use-active-semantic-model'
 import {
   createDerivedField,
   createMetric,
@@ -173,6 +174,7 @@ export default function ReportBuilderPage() {
   const [appliedSorts, setAppliedSorts] = useState<AppliedSort[]>([])
   const [filterBuilderOpen, setFilterBuilderOpen] = useState(false)
   const [sortBuilderOpen, setSortBuilderOpen] = useState(false)
+  const semanticModel = useActiveSemanticModel(connectionId, datasetId, metadata, metadataLoading, metadataError)
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -606,7 +608,7 @@ export default function ReportBuilderPage() {
     setCalculatedFields([])
   }, [datasetId, selectedFields.length])
 
-  const hasDataset = Boolean(datasetId && metadata)
+  const hasDataset = semanticModel.isConnected
 
   // Filter handlers
   const handleApplyFilters = useCallback((filters: AppliedFilter[]) => {
@@ -786,6 +788,7 @@ export default function ReportBuilderPage() {
               loadedTables={loadedTables}
               metadataTables={metadata?.tables ?? []}
               metadataMetrics={metadata?.metrics ?? []}
+              semanticMetadata={metadata}
               metadataLoading={metadataLoading}
               metadataError={metadataError}
             />

@@ -33,6 +33,7 @@ import {
   type CalculatedField,
 } from '@/lib/schema-data'
 import {
+  type DatasetMetadataResponse,
   type MetadataField,
   type MetadataMetric,
   type MetadataTable,
@@ -54,6 +55,7 @@ interface SchemaPanelProps {
   loadedTables: TableSchema[] | null
   metadataTables: MetadataTable[]
   metadataMetrics: MetadataMetric[]
+  semanticMetadata: DatasetMetadataResponse | null
   metadataLoading: boolean
   metadataError: string | null
 }
@@ -404,6 +406,7 @@ export function SchemaPanel({
   onAddCalculatedFieldToReport,
   metadataTables,
   metadataMetrics,
+  semanticMetadata,
   metadataLoading,
   metadataError,
 }: SchemaPanelProps) {
@@ -548,7 +551,7 @@ export function SchemaPanel({
           {!metadataLoading && !metadataError && metadataTables.length === 0 && metadataMetrics.length === 0 && (
             <div className="m-2 rounded-md border border-dashed p-4 text-center">
               <p className="text-sm font-medium">No source connected</p>
-              <p className="text-xs text-muted-foreground mt-1">Connect a source to load fields</p>
+              <p className="text-xs text-muted-foreground mt-1">Connect a datasource to load semantic fields</p>
             </div>
           )}
 
