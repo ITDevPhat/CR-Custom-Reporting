@@ -10,6 +10,7 @@ using Report.QueryEngine.Measures;
 using Report.QueryEngine.Planning;
 using Report.QueryEngine.Relationships;
 using Report.QueryEngine.Validation;
+using Microsoft.Extensions.Logging;
 
 namespace Report.QueryEngine.Services;
 
@@ -24,6 +25,7 @@ public sealed class ReportQueryService
     private readonly SqlCompiler _sqlCompiler;
     private readonly IQueryExecutor _queryExecutor;
     private readonly GrainValidationService _grainValidationService;
+    private readonly ILogger<ReportQueryService> _logger;
 
     public ReportQueryService(
         ISemanticModelStore modelStore,
@@ -34,7 +36,8 @@ public sealed class ReportQueryService
         LogicalPlanBuilder planBuilder,
         SqlCompiler sqlCompiler,
         IQueryExecutor queryExecutor,
-        GrainValidationService grainValidationService)
+        GrainValidationService grainValidationService,
+        ILogger<ReportQueryService> logger)
     {
         _modelStore = modelStore;
         _binder = binder;
@@ -45,6 +48,7 @@ public sealed class ReportQueryService
         _sqlCompiler = sqlCompiler;
         _queryExecutor = queryExecutor;
         _grainValidationService = grainValidationService;
+        _logger = logger;
     }
 
     public async Task<object> CompileAsync(VisualQueryRequest request, CancellationToken ct)
@@ -113,6 +117,8 @@ public sealed class ReportQueryService
         }
         var lqp = _planBuilder.Build(context, measures, joinPlan, model);
         var sql = _sqlCompiler.Compile(lqp);
+        _logger.LogInformation("Generated SQL: {Sql}", sql.Sql);
+        _logger.LogInformation("Generated Parameters: {@Parameters}", sql.Parameters);
 
         return new QueryCompilationPipelineResult(
             bound,
