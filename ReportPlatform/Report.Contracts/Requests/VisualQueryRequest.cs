@@ -19,7 +19,7 @@ public sealed class VisualQueryRequest
     public List<FilterRequest> Filters { get; init; } = [];
     public List<SortRequest> Sort { get; init; } = [];
 
-    [Range(1, 1000)]
+    [Range(0, 1000)]
     public int Limit { get; init; } = 100;
 
     [Range(0, int.MaxValue)]

@@ -73,6 +73,7 @@ builder.Services.AddScoped<GrainValidationService>();
 builder.Services.AddScoped<DatasetMetadataService>();
 builder.Services.AddScoped<ExpressionValidationService>();
 builder.Services.AddScoped<ITelerikReportFactory, DynamicTelerikReportFactory>();
+builder.Services.AddScoped<IReportConnectionStringResolver, ReportConnectionStringResolver>();
 builder.Services.AddScoped<IReportRenderService, TelerikReportRenderService>();
 
 var app = builder.Build();
