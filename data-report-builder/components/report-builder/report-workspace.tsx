@@ -98,7 +98,7 @@ interface ReportWorkspaceProps {
 
 const EXPORT_FORMATS = [
   { label: 'Acrobat (PDF) file', value: 'PDF', enabled: true },
-  { label: 'CSV (comma delimited)', value: 'CSV', enabled: false },
+  { label: 'CSV (comma delimited)', value: 'CSV', enabled: true },
   { label: 'Excel Worksheet', value: 'XLSX', enabled: true },
   { label: 'PowerPoint Presentation', value: 'PPTX', enabled: false },
   { label: 'Rich Text Format', value: 'RTF', enabled: false },

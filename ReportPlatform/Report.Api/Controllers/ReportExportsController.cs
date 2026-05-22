@@ -28,6 +28,10 @@ public sealed class ReportExportsController : ControllerBase
             var result = await _reportRenderService.RenderAsync(request, ct);
             return File(result.Bytes, result.ContentType, result.FileName);
         }
+        catch (ReportExportException ex)
+        {
+            return StatusCode(ex.StatusCode, new { message = ex.Message });
+        }
         catch (ArgumentException ex)
         {
             return BadRequest(new { message = ex.Message });
