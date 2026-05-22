@@ -1,9 +1,9 @@
+using System.Globalization;
+using System.Text;
+using Microsoft.Extensions.Logging;
 using Report.Contracts.Exports;
 using Report.Contracts.Requests;
 using Report.QueryEngine.Services;
-using Microsoft.Extensions.Logging;
-using System.Text;
-using System.Globalization;
 
 namespace Report.Api.Rendering;
 
@@ -26,12 +26,17 @@ public sealed class TelerikReportRenderService : IReportRenderService
         _logger = logger;
     }
 
-    public async Task<RenderedReportResult> RenderAsync(RenderReportRequest request, CancellationToken ct)
+    public async Task<RenderedReportResult> RenderAsync(
+        RenderReportRequest request,
+        CancellationToken ct)
     {
         var format = Normalize(request.Format);
-        var exportQuery = request.ExportFullData ? CreateExportQueryRequest(request.Query) : request.Query;
+        var exportQuery = request.ExportFullData
+            ? CreateExportQueryRequest(request.Query)
+            : request.Query;
 
-        _logger.LogInformation("Export format={Format} PreviewLimitRemovedForExport={Removed} OriginalLimit={OriginalLimit} ExportLimit={ExportLimit}",
+        _logger.LogInformation(
+            "Export format={Format} PreviewLimitRemovedForExport={Removed} OriginalLimit={OriginalLimit} ExportLimit={ExportLimit}",
             format,
             request.ExportFullData,
             request.Query.Limit,
@@ -39,19 +44,48 @@ public sealed class TelerikReportRenderService : IReportRenderService
 
         if (format == "CSV")
         {
+            var result = await _queryService.ExecuteAsync(exportQuery, ct);
             var csvBytes = CsvExportWriter.Write(result);
-            _logger.LogInformation("CSV export rows={RowCount}, columns={ColumnCount}, bytes={Bytes}", result.Rows.Count, result.Columns.Count, csvBytes.Length);
-            return BuildResult(format, csvBytes, result.Rows.Count, result.Columns.Count);
+
+            _logger.LogInformation(
+                "CSV export rows={RowCount}, columns={ColumnCount}, bytes={Bytes}",
+                result.Rows.Count,
+                result.Columns.Count,
+                csvBytes.Length);
+
+            return BuildResult(
+                format,
+                csvBytes,
+                result.Rows.Count,
+                result.Columns.Count);
         }
 
-        var report = _factory.CreateTableReport(result, request.ReportTitle);
+        var compiled = await _queryService.CompileForExportAsync(exportQuery, ct);
+        var connectionString = _connectionStringResolver.Resolve(compiled.ConnectionId);
+
+        _logger.LogInformation(
+            "Telerik SQL-backed export. TelerikSqlDataSource=true Sql={Sql} Parameters={@Parameters}",
+            compiled.Sql,
+            compiled.Parameters);
+
+        var report = _factory.CreateSqlBackedTableReport(
+            compiled,
+            connectionString,
+            request.ReportTitle);
+
         byte[] bytes;
+
         try
         {
-            var source = new Telerik.Reporting.InstanceReportSource { ReportDocument = report };
+            var source = new Telerik.Reporting.InstanceReportSource
+            {
+                ReportDocument = report
+            };
+
             var processor = new Telerik.Reporting.Processing.ReportProcessor();
             var rendered = processor.RenderReport(format, source, null)
                 ?? throw new ReportExportException($"Telerik renderer returned null output for '{format}'.");
+
             bytes = rendered.DocumentBytes
                 ?? throw new ReportExportException($"Telerik renderer produced null document bytes for '{format}'.");
         }
@@ -61,12 +95,19 @@ public sealed class TelerikReportRenderService : IReportRenderService
         }
         catch (Exception ex)
         {
-            throw new ReportExportException($"Telerik render failed for format '{format}': {ex.Message}", 500, ex);
+            throw new ReportExportException(
+                $"Telerik render failed for format '{format}': {ex.Message}",
+                500,
+                ex);
         }
 
         ValidateBinaryPayload(format, bytes);
-        _logger.LogInformation("TelerikSqlDataSource=true");
-        return BuildResult(format, bytes, -1, compiled.ExpectedColumns.Count);
+
+        return BuildResult(
+            format,
+            bytes,
+            -1,
+            compiled.ExpectedColumns.Count);
     }
 
     private static VisualQueryRequest CreateExportQueryRequest(VisualQueryRequest source)
@@ -83,22 +124,27 @@ public sealed class TelerikReportRenderService : IReportRenderService
             Filters = [.. source.Filters],
             Sort = [.. source.Sort],
             Limit = 0,
-            Offset = 0,
+            Offset = 0
         };
     }
 
-    private RenderedReportResult BuildResult(string format, byte[] bytes, int rowCount, int columnCount)
+    private RenderedReportResult BuildResult(
+        string format,
+        byte[] bytes,
+        int rowCount,
+        int columnCount)
     {
         var contentType = format switch
         {
             "PDF" => "application/pdf",
             "XLSX" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "CSV" => "text/csv; charset=utf-8",
-            _ => throw new ReportExportException($"Unsupported format '{format}'.", 400),
+            _ => throw new ReportExportException($"Unsupported format '{format}'.", 400)
         };
 
         var extension = format.ToLowerInvariant();
         var fileName = $"report-{DateTime.UtcNow:yyyyMMddHHmmss}.{extension}";
+
         _logger.LogInformation(
             "Export render completed. Format={Format} Rows={Rows} Columns={Columns} Bytes={Bytes} ContentType={ContentType} FileName={FileName} Magic={Magic}",
             format,
@@ -113,7 +159,7 @@ public sealed class TelerikReportRenderService : IReportRenderService
         {
             Bytes = bytes,
             ContentType = contentType,
-            FileName = fileName,
+            FileName = fileName
         };
     }
 
@@ -124,31 +170,48 @@ public sealed class TelerikReportRenderService : IReportRenderService
             throw new ReportExportException($"Export payload for '{format}' is empty.");
         }
 
-        if (format == "PDF" && (bytes.Length <= 100 || !Encoding.ASCII.GetString(bytes, 0, Math.Min(bytes.Length, 4)).StartsWith("%PDF", StringComparison.Ordinal)))
+        if (format == "PDF")
         {
-            throw new ReportExportException("Rendered PDF bytes are invalid or corrupted.");
+            var header = Encoding.ASCII.GetString(
+                bytes,
+                0,
+                Math.Min(bytes.Length, 4));
+
+            if (bytes.Length <= 100 ||
+                !header.StartsWith("%PDF", StringComparison.Ordinal))
+            {
+                throw new ReportExportException("Rendered PDF bytes are invalid or corrupted.");
+            }
         }
 
-        if (format == "XLSX" && (bytes.Length <= 100 || bytes[0] != 0x50 || bytes[1] != 0x4B))
+        if (format == "XLSX")
         {
-            throw new ReportExportException("Rendered XLSX bytes are invalid or corrupted.");
+            if (bytes.Length <= 100 || bytes[0] != 0x50 || bytes[1] != 0x4B)
+            {
+                throw new ReportExportException("Rendered XLSX bytes are invalid or corrupted.");
+            }
         }
     }
 
     private static string GetMagicBytes(byte[] bytes)
     {
-        return string.Join('-', bytes.Take(8).Select(b => b.ToString("X2", CultureInfo.InvariantCulture)));
+        return string.Join(
+            '-',
+            bytes.Take(8).Select(b => b.ToString("X2", CultureInfo.InvariantCulture)));
     }
 
     private static string Normalize(string format)
     {
         var normalized = format.Trim().ToUpperInvariant();
+
         return normalized switch
         {
             "PDF" => "PDF",
             "XLSX" => "XLSX",
             "CSV" => "CSV",
-            _ => throw new ReportExportException("Unsupported export format. Supported formats: PDF, XLSX, CSV.", 400),
+            _ => throw new ReportExportException(
+                "Unsupported export format. Supported formats: PDF, XLSX, CSV.",
+                400)
         };
     }
 }

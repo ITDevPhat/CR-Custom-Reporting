@@ -20,6 +20,44 @@ public sealed class ReportConnectionStringResolver : IReportConnectionStringReso
             throw new ReportExportException($"Unknown connectionId '{connectionId}'.", 400);
         }
 
-        return SqlServerConnectionFactory.BuildConnectionString(connection);
+        var connectionString = SqlServerConnectionFactory.BuildConnectionString(connection);
+
+        return NormalizeForTelerikSqlDataSource(connectionString);
+    }
+
+    private static string NormalizeForTelerikSqlDataSource(string connectionString)
+    {
+        var parts = connectionString
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var normalizedParts = new List<string>();
+
+        foreach (var part in parts)
+        {
+            var index = part.IndexOf('=');
+            if (index <= 0)
+            {
+                normalizedParts.Add(part);
+                continue;
+            }
+
+            var key = part[..index].Trim();
+            var value = part[(index + 1)..].Trim();
+
+            key = key switch
+            {
+                var k when k.Equals("Trust Server Certificate", StringComparison.OrdinalIgnoreCase)
+                    => "TrustServerCertificate",
+
+                var k when k.Equals("TrustServerCertificate", StringComparison.OrdinalIgnoreCase)
+                    => "TrustServerCertificate",
+
+                _ => key
+            };
+
+            normalizedParts.Add($"{key}={value}");
+        }
+
+        return string.Join(';', normalizedParts);
     }
 }
