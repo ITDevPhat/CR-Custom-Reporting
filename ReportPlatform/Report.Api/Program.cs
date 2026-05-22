@@ -1,5 +1,6 @@
 using Report.Api.Middleware;
 using Report.Api.Services;
+using Report.Api.Rendering;
 using Report.Api.Swagger;
 using Report.Infrastructure.Connections;
 using Report.Infrastructure.Execution;
@@ -71,6 +72,8 @@ builder.Services.AddScoped<ReportQueryService>();
 builder.Services.AddScoped<GrainValidationService>();
 builder.Services.AddScoped<DatasetMetadataService>();
 builder.Services.AddScoped<ExpressionValidationService>();
+builder.Services.AddScoped<ITelerikReportFactory, DynamicTelerikReportFactory>();
+builder.Services.AddScoped<IReportRenderService, TelerikReportRenderService>();
 
 var app = builder.Build();
 
