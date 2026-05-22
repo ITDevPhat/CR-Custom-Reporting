@@ -1,17 +1,16 @@
 using System.Data;
+using Telerik.Reporting;
 using Telerik.Reporting.Drawing;
 using Report.Contracts.Results;
-using TelerikReport = Telerik.Reporting.Report;
-using TelerikTable = Telerik.Reporting.Table;
 
 namespace Report.Api.Rendering;
 
 public sealed class DynamicTelerikReportFactory : ITelerikReportFactory
 {
-    public TelerikReport CreateTableReport(QueryResult result, string? title)
+    public Report CreateTableReport(QueryResult result, string? title)
     {
         var data = QueryResultDataTableMapper.Map(result);
-        var report = new TelerikReport
+        var report = new Report
         {
             Name = "RuntimeExportReport",
             PageSettings =
@@ -46,16 +45,16 @@ public sealed class DynamicTelerikReportFactory : ITelerikReportFactory
         return report;
     }
 
-    private static TelerikTable BuildTable(DataTable data)
+    private static Table BuildTable(DataTable data)
     {
-        var table = new TelerikTable
+        var table = new Table
         {
             DataSource = data,
             Location = new PointU(Unit.Cm(0), Unit.Cm(0)),
         };
 
         var columnWidth = Unit.Cm(Math.Max(2.4, 26.0 / Math.Max(data.Columns.Count, 1)));
-        foreach (System.Data.DataColumn col in data.Columns)
+        foreach (DataColumn col in data.Columns)
         {
             table.Body.Columns.Add(new TableBodyColumn(columnWidth));
             table.ColumnGroups.Add(new TableGroup());

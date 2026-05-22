@@ -1,8 +1,9 @@
 using Report.Contracts.Results;
+using Telerik.Reporting;
 
 namespace Report.Api.Rendering;
 
 public interface ITelerikReportFactory
 {
-    global::Telerik.Reporting.Report CreateTableReport(QueryResult result, string? title);
+    Report CreateTableReport(QueryResult result, string? title);
 }
