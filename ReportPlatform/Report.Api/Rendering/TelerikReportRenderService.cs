@@ -1,4 +1,5 @@
 using Report.Contracts.Exports;
+using Report.Contracts.Requests;
 using Report.QueryEngine.Services;
 using Microsoft.Extensions.Logging;
 using System.Text;
@@ -10,28 +11,31 @@ public sealed class TelerikReportRenderService : IReportRenderService
 {
     private readonly ReportQueryService _queryService;
     private readonly ITelerikReportFactory _factory;
+    private readonly IReportConnectionStringResolver _connectionStringResolver;
     private readonly ILogger<TelerikReportRenderService> _logger;
 
     public TelerikReportRenderService(
         ReportQueryService queryService,
         ITelerikReportFactory factory,
+        IReportConnectionStringResolver connectionStringResolver,
         ILogger<TelerikReportRenderService> logger)
     {
         _queryService = queryService;
         _factory = factory;
+        _connectionStringResolver = connectionStringResolver;
         _logger = logger;
     }
 
     public async Task<RenderedReportResult> RenderAsync(RenderReportRequest request, CancellationToken ct)
     {
         var format = Normalize(request.Format);
-        var result = await _queryService.ExecuteAsync(request.Query, ct);
-        _logger.LogInformation(
-            "Export query returned {ColumnCount} columns and {RowCount} rows.",
-            result.Columns.Count,
-            result.Rows.Count);
-        _logger.LogInformation("Generated SQL: {Sql}", result.Metadata.Sql);
-        _logger.LogInformation("Parameters: {@Parameters}", result.Metadata.Parameters);
+        var exportQuery = request.ExportFullData ? CreateExportQueryRequest(request.Query) : request.Query;
+
+        _logger.LogInformation("Export format={Format} PreviewLimitRemovedForExport={Removed} OriginalLimit={OriginalLimit} ExportLimit={ExportLimit}",
+            format,
+            request.ExportFullData,
+            request.Query.Limit,
+            exportQuery.Limit);
 
         if (format == "CSV")
         {
@@ -61,7 +65,26 @@ public sealed class TelerikReportRenderService : IReportRenderService
         }
 
         ValidateBinaryPayload(format, bytes);
-        return BuildResult(format, bytes, result.Rows.Count, result.Columns.Count);
+        _logger.LogInformation("TelerikSqlDataSource=true");
+        return BuildResult(format, bytes, -1, compiled.ExpectedColumns.Count);
+    }
+
+    private static VisualQueryRequest CreateExportQueryRequest(VisualQueryRequest source)
+    {
+        return new VisualQueryRequest
+        {
+            ConnectionId = source.ConnectionId,
+            DatasetId = source.DatasetId,
+            ReportId = source.ReportId,
+            VisualType = source.VisualType,
+            Rows = [.. source.Rows],
+            Columns = [.. source.Columns],
+            Values = [.. source.Values],
+            Filters = [.. source.Filters],
+            Sort = [.. source.Sort],
+            Limit = 0,
+            Offset = 0,
+        };
     }
 
     private RenderedReportResult BuildResult(string format, byte[] bytes, int rowCount, int columnCount)

@@ -1,4 +1,5 @@
 using Report.Contracts.Requests;
+using Report.Contracts.Exports;
 using Report.Contracts.Results;
 using Report.Contracts.Semantic;
 using Report.Metadata.Stores;
@@ -85,6 +86,26 @@ public sealed class ReportQueryService
         }));
 
         return queryResult;
+    }
+
+    public async Task<CompiledReportQuery> CompileForExportAsync(VisualQueryRequest request, CancellationToken ct)
+    {
+        var result = await BuildCompilationAsync(request, ct);
+        var expectedColumns = BuildExpectedColumns(result.LogicalPlan);
+        var warnings = result.GrainValidation.Warnings.Select(w => new QueryValidationMessage
+        {
+            Code = w.Code,
+            Message = w.Message
+        }).ToList();
+
+        return new CompiledReportQuery
+        {
+            ConnectionId = request.ConnectionId,
+            Sql = result.Sql.Sql,
+            Parameters = new Dictionary<string, object?>(result.Sql.Parameters),
+            ExpectedColumns = expectedColumns,
+            Warnings = warnings,
+        };
     }
 
     private static List<QueryColumn> BuildExpectedColumns(LogicalQueryPlan logicalPlan)

@@ -10,10 +10,10 @@ public sealed class DynamicTelerikReportFactory : ITelerikReportFactory
     {
         var report = new Telerik.Reporting.Report
         {
-            Name = "RuntimeExportReport",
+            Name = "RuntimeSqlExportReport",
             PageSettings =
             {
-                Landscape = result.Columns.Count > 8,
+                Landscape = compiled.ExpectedColumns.Count > 8,
             },
         };
 

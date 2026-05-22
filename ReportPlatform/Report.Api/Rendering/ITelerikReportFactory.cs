@@ -1,8 +1,8 @@
-using Report.Contracts.Results;
+using Report.Contracts.Exports;
 
 namespace Report.Api.Rendering;
 
 public interface ITelerikReportFactory
 {
-    Telerik.Reporting.Report CreateTableReport(QueryResult result, string? title);
+    Telerik.Reporting.Report CreateSqlBackedTableReport(CompiledReportQuery compiled, string connectionString, string? title);
 }
