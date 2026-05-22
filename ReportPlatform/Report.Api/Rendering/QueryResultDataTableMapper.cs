@@ -1,5 +1,6 @@
 using System.Data;
 using Report.Contracts.Results;
+using SystemDataColumn = System.Data.DataColumn;
 
 namespace Report.Api.Rendering;
 
@@ -15,7 +16,11 @@ public static class QueryResultDataTableMapper
 
         for (var i = 0; i < result.Columns.Count; i++)
         {
-            table.Columns.Add(result.Columns[i].Name, columnTypes[i]);
+            var systemDataColumn = new SystemDataColumn(result.Columns[i].Name, columnTypes[i])
+            {
+                AllowDBNull = true
+            };
+            table.Columns.Add(systemDataColumn);
         }
 
         foreach (var row in result.Rows)
@@ -24,7 +29,7 @@ public static class QueryResultDataTableMapper
             for (var i = 0; i < result.Columns.Count; i++)
             {
                 var colName = result.Columns[i].Name;
-                item[colName] = row.TryGetValue(colName, out var value) && value is not null ? value : DBNull.Value;
+                item[colName] = CoerceValue(row.TryGetValue(colName, out var value) ? value : null, columnTypes[i]);
             }
             table.Rows.Add(item);
         }
@@ -55,5 +60,25 @@ public static class QueryResultDataTableMapper
             "string" or "nvarchar" or "varchar" or "text" => typeof(string),
             _ => typeof(object),
         };
+    }
+
+    private static object CoerceValue(object? value, Type targetType)
+    {
+        if (value is null or DBNull)
+        {
+            return DBNull.Value;
+        }
+
+        if (targetType == typeof(decimal) && value is not decimal)
+        {
+            return Convert.ToDecimal(value);
+        }
+
+        if (targetType == typeof(DateTime) && value is DateTimeOffset dto)
+        {
+            return dto.UtcDateTime;
+        }
+
+        return value;
     }
 }

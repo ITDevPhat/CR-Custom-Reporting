@@ -636,7 +636,12 @@ export default function ReportBuilderPage() {
       return
     }
 
-    const normalizedFormat = format.toUpperCase() === 'PDF' ? 'PDF' : 'XLSX'
+    const normalized = format.toUpperCase()
+    const normalizedFormat = normalized === 'PDF' || normalized === 'XLSX' || normalized === 'CSV' ? normalized : null
+    if (!normalizedFormat) {
+      toast.error('Unsupported export format selected.')
+      return
+    }
 
     try {
       setIsExporting(true)
@@ -649,9 +654,31 @@ export default function ReportBuilderPage() {
         query,
       })
 
+      const contentType = (response.headers.get('content-type') ?? '').toLowerCase()
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        toast.error(`Export failed: ${errorText || 'Server returned an error response.'}`)
+        return
+      }
+
+      const expectedContentType = normalizedFormat === 'PDF'
+        ? 'application/pdf'
+        : normalizedFormat === 'XLSX'
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv'
+
+      const isBinaryExport = contentType.includes(expectedContentType)
+      const isErrorContent = contentType.includes('application/json') || contentType.includes('text/html')
+      if (!isBinaryExport || isErrorContent) {
+        const errorText = await response.text()
+        toast.error(`Export failed. Server returned an error response. ${errorText}`)
+        return
+      }
+
       const blob = await response.blob()
       const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
-      const fallbackName = `report-${timestamp}.${normalizedFormat === 'PDF' ? 'pdf' : 'xlsx'}`
+      const fallbackName = `report-${timestamp}.${normalizedFormat.toLowerCase()}`
       const disposition = response.headers.get('content-disposition') ?? ''
       const filenameMatch = disposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i)
       const fileName = filenameMatch?.[1] ? decodeURIComponent(filenameMatch[1].replace(/"/g, '')) : fallbackName
