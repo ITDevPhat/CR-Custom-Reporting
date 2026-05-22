@@ -36,6 +36,7 @@ import { GripVertical, Calculator, Sigma, FunctionSquare } from 'lucide-react'
 import {
   ReportApiError,
   executeReportQuery,
+  renderReport,
   type QueryResult,
   type ReportFilterDraft,
   type ReportFilterFieldOption,
@@ -164,6 +165,7 @@ export default function ReportBuilderPage() {
   const [result, setResult] = useState<QueryResult | null>(null)
   const [runtimePayload, setRuntimePayload] = useState<VisualQueryRequest | null>(null)
   const [isRunning, setIsRunning] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
   const [errorSql, setErrorSql] = useState<string | null>(null)
   const [reportFilters, setReportFilters] = useState<ReportFilterDraft[]>([])
@@ -618,6 +620,60 @@ export default function ReportBuilderPage() {
     }
   }, [selectedFields, buildVisualQueryRequest])
 
+  const exportReport = useCallback(async (format: string, enabled: boolean) => {
+    if (!enabled) {
+      toast.info('This export format is not supported yet.')
+      return
+    }
+
+    if (!datasetId || !connectionId || !metadata) {
+      toast.warning('Connect a source before exporting report')
+      return
+    }
+
+    if (selectedFields.length === 0) {
+      toast.warning('Select at least one field before exporting report')
+      return
+    }
+
+    const normalizedFormat = format.toUpperCase() === 'PDF' ? 'PDF' : 'XLSX'
+
+    try {
+      setIsExporting(true)
+      toast.info('Preparing document to download. Please wait...')
+
+      const query = buildVisualQueryRequest()
+      const response = await renderReport({
+        format: normalizedFormat,
+        reportTitle,
+        query,
+      })
+
+      const blob = await response.blob()
+      const timestamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)
+      const fallbackName = `report-${timestamp}.${normalizedFormat === 'PDF' ? 'pdf' : 'xlsx'}`
+      const disposition = response.headers.get('content-disposition') ?? ''
+      const filenameMatch = disposition.match(/filename\*?=(?:UTF-8''|")?([^\";]+)/i)
+      const fileName = filenameMatch?.[1] ? decodeURIComponent(filenameMatch[1].replace(/"/g, '')) : fallbackName
+
+      const url = window.URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = fileName
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      window.URL.revokeObjectURL(url)
+
+      toast.success('Download started.')
+    } catch (error) {
+      console.error('Report export failed', error)
+      toast.error('Failed to prepare document. Please try again.')
+    } finally {
+      setIsExporting(false)
+    }
+  }, [buildVisualQueryRequest, connectionId, datasetId, metadata, reportTitle, selectedFields.length])
+
   const saveDraft = useCallback(async (duplicate: boolean) => {
     try {
       const request = buildVisualQueryRequest()
@@ -872,6 +928,8 @@ export default function ReportBuilderPage() {
               onUpdateReportSort={updateReportSort}
               onRemoveReportSort={removeReportSort}
               runtimePayload={runtimePayload}
+              isExporting={isExporting}
+              onExport={exportReport}
             />
           </div>
         </div>

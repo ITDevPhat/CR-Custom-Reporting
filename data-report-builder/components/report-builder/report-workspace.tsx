@@ -20,6 +20,7 @@ import {
   Edit2,
   Trash2,
   Plus,
+  Download,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -44,6 +45,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { type SelectedField } from '@/lib/schema-data'
 import { type AppliedFilter, type AppliedSort } from '@/lib/filter-types'
@@ -85,7 +92,19 @@ interface ReportWorkspaceProps {
   onAddReportSort: () => void
   onUpdateReportSort: (id: string, patch: Partial<ReportSortDraft>) => void
   onRemoveReportSort: (id: string) => void
+  isExporting: boolean
+  onExport: (format: string, enabled: boolean) => void
 }
+
+const EXPORT_FORMATS = [
+  { label: 'Acrobat (PDF) file', value: 'PDF', enabled: true },
+  { label: 'CSV (comma delimited)', value: 'CSV', enabled: false },
+  { label: 'Excel Worksheet', value: 'XLSX', enabled: true },
+  { label: 'PowerPoint Presentation', value: 'PPTX', enabled: false },
+  { label: 'Rich Text Format', value: 'RTF', enabled: false },
+  { label: 'TIFF file', value: 'TIFF', enabled: false },
+  { label: 'Word Document', value: 'DOCX', enabled: false },
+] as const
 
 function getDataTypeBadgeColor(dataType: string) {
   switch (dataType) {
@@ -321,11 +340,15 @@ function ReportPreviewTable({
   previewLimit,
   result,
   isRunning,
+  isExporting,
+  onExport,
 }: {
   selectedFields: SelectedField[]
   previewLimit: number
   result: QueryResult | null
   isRunning: boolean
+  isExporting: boolean
+  onExport: (format: string, enabled: boolean) => void
 }) {
   if (isRunning) {
     return (
@@ -362,8 +385,28 @@ function ReportPreviewTable({
   return (
     <TooltipProvider>
       <Card>
-        <CardHeader className="py-3">
+        <CardHeader className="py-3 flex flex-row items-center justify-between">
           <CardTitle className="text-sm font-medium">Report Preview</CardTitle>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" disabled={isExporting} className="h-8 gap-1 px-2">
+                <Download className="h-3.5 w-3.5" />
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {EXPORT_FORMATS.map((format) => (
+                <DropdownMenuItem
+                  key={format.value}
+                  disabled={isExporting}
+                  onClick={() => onExport(format.value, format.enabled)}
+                  className={cn(!format.enabled && 'opacity-50')}
+                >
+                  {format.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </CardHeader>
         <CardContent className="p-0">
           <div className="border rounded-lg overflow-hidden mx-4 mb-4">
@@ -742,7 +785,7 @@ function ConfigurationSidebar({
   )
 }
 
-export function ReportWorkspace({ 
+export function ReportWorkspace({
   selectedFields, 
   onRemoveField, 
   onUpdateField,
@@ -771,18 +814,22 @@ export function ReportWorkspace({
   onAddReportSort,
   onUpdateReportSort,
   onRemoveReportSort,
+  isExporting,
+  onExport,
 }: ReportWorkspaceProps) {
   return (
     <div className="h-full flex flex-col bg-muted/30 overflow-hidden">
       <ScrollArea className="flex-1 min-h-0">
         <div className="p-4 space-y-4">
           <DropZone selectedFields={selectedFields} onRemoveField={onRemoveField} onUpdateField={onUpdateField} />
-          <ReportPreviewTable
-            selectedFields={selectedFields}
-            previewLimit={previewLimit}
-            result={result}
-            isRunning={isRunning}
-          />
+        <ReportPreviewTable
+          selectedFields={selectedFields}
+          previewLimit={previewLimit}
+          result={result}
+          isRunning={isRunning}
+          isExporting={isExporting}
+          onExport={onExport}
+        />
           <ConfigurationSidebar 
             previewLimit={previewLimit} 
             onPreviewLimitChange={onPreviewLimitChange}
