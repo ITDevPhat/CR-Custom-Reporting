@@ -20,15 +20,6 @@ public sealed class ReportConnectionStringResolver : IReportConnectionStringReso
             throw new ReportExportException($"Unknown connectionId '{connectionId}'.", 400);
         }
 
-        var connectionString = SqlServerConnectionFactory.BuildConnectionString(connection);
-        return NormalizeForTelerikSqlDataSource(connectionString);
-    }
-
-    private static string NormalizeForTelerikSqlDataSource(string connectionString)
-    {
-        return connectionString.Replace(
-            "Trust Server Certificate",
-            "TrustServerCertificate",
-            StringComparison.OrdinalIgnoreCase);
+        return SqlServerConnectionFactory.BuildConnectionString(connection);
     }
 }

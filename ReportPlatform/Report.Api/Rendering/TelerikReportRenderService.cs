@@ -39,23 +39,12 @@ public sealed class TelerikReportRenderService : IReportRenderService
 
         if (format == "CSV")
         {
-            var queryResult = await _queryService.ExecuteAsync(exportQuery, ct);
-            var csvBytes = CsvExportWriter.Write(queryResult);
-            _logger.LogInformation("CSV export rows={RowCount}, columns={ColumnCount}, bytes={Bytes}", queryResult.Rows.Count, queryResult.Columns.Count, csvBytes.Length);
-            return BuildResult(format, csvBytes, queryResult.Rows.Count, queryResult.Columns.Count);
+            var csvBytes = CsvExportWriter.Write(result);
+            _logger.LogInformation("CSV export rows={RowCount}, columns={ColumnCount}, bytes={Bytes}", result.Rows.Count, result.Columns.Count, csvBytes.Length);
+            return BuildResult(format, csvBytes, result.Rows.Count, result.Columns.Count);
         }
 
-        var compiled = await _queryService.CompileForExportAsync(exportQuery, ct);
-        _logger.LogInformation("Export compile diagnostics: ExpectedColumns={ExpectedColumnsCount} SqlLength={SqlLength} ParameterCount={ParameterCount}",
-            compiled.ExpectedColumns.Count,
-            compiled.Sql.Length,
-            compiled.Parameters.Count);
-        _logger.LogInformation("Compiled SQL for export: {Sql}", compiled.Sql);
-        _logger.LogInformation("Compiled Parameters for export: {@Parameters}", compiled.Parameters);
-
-        var connectionString = _connectionStringResolver.Resolve(compiled.ConnectionId);
-        var report = _factory.CreateSqlBackedTableReport(compiled, connectionString, request.ReportTitle);
-
+        var report = _factory.CreateTableReport(result, request.ReportTitle);
         byte[] bytes;
         try
         {
