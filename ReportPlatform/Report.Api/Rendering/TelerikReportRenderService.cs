@@ -1,8 +1,8 @@
 using Report.Contracts.Exports;
 using Report.QueryEngine.Services;
-using Telerik.Reporting;
-using Telerik.Reporting.Processing;
 using Microsoft.Extensions.Logging;
+using System.Text;
+using System.Globalization;
 
 namespace Report.Api.Rendering;
 
@@ -33,13 +33,19 @@ public sealed class TelerikReportRenderService : IReportRenderService
         _logger.LogInformation("Generated SQL: {Sql}", result.Metadata.Sql);
         _logger.LogInformation("Parameters: {@Parameters}", result.Metadata.Parameters);
 
-        var report = _factory.CreateTableReport(result, request.ReportTitle);
+        if (format == "CSV")
+        {
+            var csvBytes = CsvExportWriter.Write(result);
+            _logger.LogInformation("CSV export rows={RowCount}, columns={ColumnCount}, bytes={Bytes}", result.Rows.Count, result.Columns.Count, csvBytes.Length);
+            return BuildResult(format, csvBytes, result.Rows.Count, result.Columns.Count);
+        }
 
+        var report = _factory.CreateTableReport(result, request.ReportTitle);
         byte[] bytes;
         try
         {
-            var source = new InstanceReportSource { ReportDocument = report };
-            var processor = new ReportProcessor();
+            var source = new Telerik.Reporting.InstanceReportSource { ReportDocument = report };
+            var processor = new Telerik.Reporting.Processing.ReportProcessor();
             var rendered = processor.RenderReport(format, source, null)
                 ?? throw new ReportExportException($"Telerik renderer returned null output for '{format}'.");
             bytes = rendered.DocumentBytes
@@ -86,15 +92,6 @@ public sealed class TelerikReportRenderService : IReportRenderService
             ContentType = contentType,
             FileName = fileName,
         };
-    }
-
-    private void EnsureRenderingExtensionAvailable(string format)
-    {
-        var available = ReportProcessor.ListRenderingExtensions().Select(x => x.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (!available.Contains(format))
-        {
-            throw new ReportExportException($"Telerik rendering extension '{format}' is not available.");
-        }
     }
 
     private static void ValidateBinaryPayload(string format, byte[] bytes)
