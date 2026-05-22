@@ -3,8 +3,6 @@ using Report.QueryEngine.Services;
 using Telerik.Reporting;
 using Telerik.Reporting.Processing;
 using Microsoft.Extensions.Logging;
-using System.Globalization;
-using System.Text;
 
 namespace Report.Api.Rendering;
 
@@ -35,14 +33,6 @@ public sealed class TelerikReportRenderService : IReportRenderService
         _logger.LogInformation("Generated SQL: {Sql}", result.Metadata.Sql);
         _logger.LogInformation("Parameters: {@Parameters}", result.Metadata.Parameters);
 
-        if (format == "CSV")
-        {
-            var bytes = CsvExportWriter.Write(result);
-            ValidateBinaryPayload(format, bytes);
-            return BuildResult(format, bytes, result.Rows.Count, result.Columns.Count);
-        }
-
-        EnsureRenderingExtensionAvailable(format);
         var report = _factory.CreateTableReport(result, request.ReportTitle);
 
         byte[] bytes;
