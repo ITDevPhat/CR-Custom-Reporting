@@ -12,4 +12,6 @@ public sealed class RenderReportRequest
 
     [Required]
     public VisualQueryRequest Query { get; init; } = new();
+
+    public bool ExportFullData { get; init; } = true;
 }

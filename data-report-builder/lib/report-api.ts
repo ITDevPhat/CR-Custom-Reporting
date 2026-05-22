@@ -96,6 +96,7 @@ export type RenderReportRequest = {
   format: 'PDF' | 'XLSX' | 'CSV'
   reportTitle?: string
   query: VisualQueryRequest
+  exportFullData?: boolean
 }
 
 export async function renderReport(request: RenderReportRequest): Promise<Response> {

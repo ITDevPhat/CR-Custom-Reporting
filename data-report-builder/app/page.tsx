@@ -652,6 +652,7 @@ export default function ReportBuilderPage() {
         format: normalizedFormat,
         reportTitle,
         query,
+        exportFullData: true,
       })
 
       const contentType = (response.headers.get('content-type') ?? '').toLowerCase()
