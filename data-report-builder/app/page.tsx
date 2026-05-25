@@ -38,6 +38,7 @@ import {
   executeReportQuery,
   renderReport,
   type QueryResult,
+  createNotificationsFromResponse,
   type ReportFilterDraft,
   type ReportFilterFieldOption,
   type ReportSortDraft,
@@ -598,7 +599,37 @@ export default function ReportBuilderPage() {
         throw new Error('Selected fields are not available in the current semantic model.')
       }
 
-      const queryResult = await executeReportQuery(request)
+      const response = await executeReportQuery(request)
+      const notifications = createNotificationsFromResponse(response)
+      notifications.forEach((notification) => {
+        if (notification.severity === 'error') {
+          toast.error(notification.message, { description: notification.suggestedFix || notification.code })
+        } else if (notification.severity === 'warning') {
+          toast.warning(notification.message, { description: notification.suggestedFix || notification.code })
+        }
+      })
+
+      if (!response.success) {
+        setRunError(`Validation failed with ${response.metadata.errorCount} error(s).`)
+        setErrorSql(response.compilation?.sql ?? null)
+        return
+      }
+
+      const queryResult: QueryResult = {
+        status: 'success',
+        columns: response.columns,
+        rows: response.data,
+        metadata: {
+          rowCount: response.data.length,
+          executionMs: response.metadata.totalDurationMs,
+          sql: response.compilation?.sql ?? '',
+          parameters: response.compilation?.parameters ?? {},
+          warnings: notifications
+            .filter((n) => n.severity === 'warning')
+            .map((n) => ({ code: n.code, message: n.message })),
+        },
+      }
+
       setResult(queryResult)
 
       const now = new Date()

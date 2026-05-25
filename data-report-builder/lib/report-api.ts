@@ -70,6 +70,85 @@ export type QueryResult = {
   }
 }
 
+
+export type ValidationSeverity = 'Info' | 'Warning' | 'Error'
+
+export type ValidationIssue = {
+  code: string
+  message: string
+  target: string
+  severity: ValidationSeverity
+  suggestedFix: string
+  details: Record<string, unknown>
+}
+
+export type ValidationResult = {
+  stage: string
+  context: Record<string, unknown>
+  validationDurationMs: number
+  errors: ValidationIssue[]
+  warnings: ValidationIssue[]
+  isValid: boolean
+}
+
+export type ExecutionMetadata = {
+  totalDurationMs: number
+  errorCount: number
+  warningCount: number
+  executedStages: string[]
+}
+
+export type CompilationResult = {
+  success: boolean
+  sql: string
+  parameters: Record<string, unknown>
+}
+
+export type ComprehensiveQueryResponse = {
+  success: boolean
+  columns: QueryColumn[]
+  data: Record<string, unknown>[]
+  compilation?: CompilationResult
+  metadata: ExecutionMetadata
+  validationResults: ValidationResult[]
+}
+
+export type ValidationNotification = {
+  id: string
+  severity: 'error' | 'warning' | 'info'
+  code: string
+  message: string
+  target?: string
+  suggestedFix?: string
+}
+
+export function createNotificationsFromResponse(response: ComprehensiveQueryResponse): ValidationNotification[] {
+  const notifications: ValidationNotification[] = []
+  for (const validationResult of response.validationResults) {
+    for (const error of validationResult.errors) {
+      notifications.push({
+        id: `${validationResult.stage}-${error.code}-${error.target ?? 'na'}`,
+        severity: 'error',
+        code: error.code,
+        message: error.message,
+        target: error.target,
+        suggestedFix: error.suggestedFix,
+      })
+    }
+    for (const warning of validationResult.warnings) {
+      notifications.push({
+        id: `${validationResult.stage}-${warning.code}-${warning.target ?? 'na'}`,
+        severity: 'warning',
+        code: warning.code,
+        message: warning.message,
+        target: warning.target,
+        suggestedFix: warning.suggestedFix,
+      })
+    }
+  }
+  return notifications
+}
+
 export class ReportApiError extends Error {
   sql?: string
   errorCode?: string
@@ -125,7 +204,7 @@ export async function compileReportQuery(request: VisualQueryRequest) {
   return res.json()
 }
 
-export async function executeReportQuery(request: VisualQueryRequest): Promise<QueryResult> {
+export async function executeReportQuery(request: VisualQueryRequest): Promise<ComprehensiveQueryResponse> {
   const res = await fetch(`${API_BASE}/api/query/execute`, {
     method: 'POST',
     headers: {
