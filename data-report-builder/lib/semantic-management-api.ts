@@ -1,7 +1,7 @@
 import { type MetadataField, type MetadataMetric } from './report-metadata-api'
 import { type VisualQueryRequest } from './report-api'
 
-const API_BASE = process.env.NEXT_PUBLIC_REPORT_API_URL ?? 'http://localhost:5000'
+const API_BASE = process.env.NEXT_PUBLIC_REPORT_API_URL ?? 'http://localhost:5224'
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {

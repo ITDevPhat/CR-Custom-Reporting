@@ -14,7 +14,14 @@ public sealed class DynamicTelerikReportFactory : ITelerikReportFactory
             Name = "RuntimeSqlExportReport",
             PageSettings =
             {
-                Landscape = compiled.ExpectedColumns.Count > 8
+                Landscape = ResolveLayout(compiled.ExpectedColumns.Count).Landscape,
+                Margins =
+                {
+                    Left = Telerik.Reporting.Drawing.Unit.Cm(0.5),
+                    Right = Telerik.Reporting.Drawing.Unit.Cm(0.5),
+                    Top = Telerik.Reporting.Drawing.Unit.Cm(0.7),
+                    Bottom = Telerik.Reporting.Drawing.Unit.Cm(0.7)
+                }
             }
         };
 
@@ -55,7 +62,7 @@ public sealed class DynamicTelerikReportFactory : ITelerikReportFactory
 
         var detail = new Telerik.Reporting.DetailSection
         {
-            Height = Telerik.Reporting.Drawing.Unit.Cm(1)
+            Height = Telerik.Reporting.Drawing.Unit.Cm(1.6)
         };
 
         detail.Items.Add(table);
@@ -63,7 +70,42 @@ public sealed class DynamicTelerikReportFactory : ITelerikReportFactory
 
         return report;
     }
+    private sealed record TableLayout(
+    bool Landscape,
+    double PrintableWidthCm,
+    double HeaderFontPt,
+    double BodyFontPt,
+    double RowHeightCm);
 
+    private static TableLayout ResolveLayout(int columnCount)
+    {
+        if (columnCount >= 10)
+        {
+            return new TableLayout(
+                Landscape: true,
+                PrintableWidthCm: 27.0,
+                HeaderFontPt: 6,
+                BodyFontPt: 6,
+                RowHeightCm: 0.5);
+        }
+
+        if (columnCount >= 6)
+        {
+            return new TableLayout(
+                Landscape: true,
+                PrintableWidthCm: 27.0,
+                HeaderFontPt: 7,
+                BodyFontPt: 7,
+                RowHeightCm: 0.55);
+        }
+
+        return new TableLayout(
+            Landscape: false,
+            PrintableWidthCm: 18.5,
+            HeaderFontPt: 8,
+            BodyFontPt: 8,
+            RowHeightCm: 0.6);
+    }
     private static Telerik.Reporting.SqlDataSource BuildSqlDataSource(
         CompiledReportQuery compiled,
         string connectionString)
@@ -86,8 +128,8 @@ public sealed class DynamicTelerikReportFactory : ITelerikReportFactory
     }
 
     private static Telerik.Reporting.Table BuildTable(
-        CompiledReportQuery compiled,
-        Telerik.Reporting.SqlDataSource dataSource)
+    CompiledReportQuery compiled,
+    Telerik.Reporting.SqlDataSource dataSource)
     {
         var table = new Telerik.Reporting.Table
         {
@@ -98,61 +140,92 @@ public sealed class DynamicTelerikReportFactory : ITelerikReportFactory
         };
 
         var columnCount = Math.Max(compiled.ExpectedColumns.Count, 1);
-        var columnWidth = Telerik.Reporting.Drawing.Unit.Cm(Math.Max(2.4, 26.0 / columnCount));
+        var layout = ResolveLayout(columnCount);
 
-        foreach (var _ in compiled.ExpectedColumns)
+        var columnWidthCm = layout.PrintableWidthCm / columnCount;
+        var columnWidth = Telerik.Reporting.Drawing.Unit.Cm(columnWidthCm);
+
+        foreach (var column in compiled.ExpectedColumns)
         {
             table.Body.Columns.Add(new Telerik.Reporting.TableBodyColumn(columnWidth));
-            table.ColumnGroups.Add(new Telerik.Reporting.TableGroup());
+
+            var columnGroup = new Telerik.Reporting.TableGroup
+            {
+                Name = $"cg_{column.Name}"
+            };
+
+            columnGroup.ReportItem = new Telerik.Reporting.TextBox
+            {
+                Value = column.Name,
+                Size = new Telerik.Reporting.Drawing.SizeU(
+                    columnWidth,
+                    Telerik.Reporting.Drawing.Unit.Cm(0.7)),
+                Style =
+            {
+                BackgroundColor = System.Drawing.Color.Gainsboro,
+                Font =
+                {
+                    Bold = true,
+                    Size = Telerik.Reporting.Drawing.Unit.Point(8)
+                },
+                BorderStyle =
+                {
+                    Default = Telerik.Reporting.Drawing.BorderType.Solid
+                },
+                Padding =
+                {
+                    Left = Telerik.Reporting.Drawing.Unit.Point(2),
+                    Right = Telerik.Reporting.Drawing.Unit.Point(2)
+                }
+            }
+            };
+
+            table.ColumnGroups.Add(columnGroup);
         }
 
         table.Body.Rows.Add(new Telerik.Reporting.TableBodyRow(
-            Telerik.Reporting.Drawing.Unit.Cm(0.7)));
+            Telerik.Reporting.Drawing.Unit.Cm(0.6)));
 
-        table.RowGroups.Add(new Telerik.Reporting.TableGroup());
+        var detailGroup = new Telerik.Reporting.TableGroup
+        {
+            Name = "detail"
+        };
+
+        detailGroup.Groupings.Add(new Telerik.Reporting.Grouping(null));
+        table.RowGroups.Add(detailGroup);
 
         for (var i = 0; i < compiled.ExpectedColumns.Count; i++)
         {
             var column = compiled.ExpectedColumns[i];
 
-            table.ColumnGroups[i].ReportItem = new Telerik.Reporting.TextBox
-            {
-                Value = column.Name,
-                Style =
-                {
-                    BackgroundColor = System.Drawing.Color.Gainsboro,
-                    Font =
-                    {
-                        Bold = true,
-                        Size = Telerik.Reporting.Drawing.Unit.Point(8)
-                    },
-                    BorderStyle =
-                    {
-                        Default = Telerik.Reporting.Drawing.BorderType.Solid
-                    }
-                }
-            };
-
             table.Body.SetCellContent(0, i, new Telerik.Reporting.TextBox
             {
-                Value = $"= Fields.{column.Name}",
+                Value = $"=Fields.{column.Name}",
+                Size = new Telerik.Reporting.Drawing.SizeU(
+                    columnWidth,
+                    Telerik.Reporting.Drawing.Unit.Cm(0.6)),
                 Style =
+            {
+                Font =
                 {
-                    Font =
-                    {
-                        Size = Telerik.Reporting.Drawing.Unit.Point(8)
-                    },
-                    BorderStyle =
-                    {
-                        Default = Telerik.Reporting.Drawing.BorderType.Solid
-                    }
+                    Size = Telerik.Reporting.Drawing.Unit.Point(7)
+                },
+                BorderStyle =
+                {
+                    Default = Telerik.Reporting.Drawing.BorderType.Solid
+                },
+                Padding =
+                {
+                    Left = Telerik.Reporting.Drawing.Unit.Point(2),
+                    Right = Telerik.Reporting.Drawing.Unit.Point(2)
                 }
+            }
             });
         }
 
         table.Size = new Telerik.Reporting.Drawing.SizeU(
-            Telerik.Reporting.Drawing.Unit.Cm(columnWidth.Value * columnCount),
-            Telerik.Reporting.Drawing.Unit.Cm(0.7));
+            Telerik.Reporting.Drawing.Unit.Cm(layout.PrintableWidthCm),
+            Telerik.Reporting.Drawing.Unit.Cm(layout.RowHeightCm * 2));
 
         return table;
     }

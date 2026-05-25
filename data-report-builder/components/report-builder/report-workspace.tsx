@@ -25,7 +25,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   Table,
   TableBody,
@@ -384,8 +384,8 @@ function ReportPreviewTable({
 
   return (
     <TooltipProvider>
-      <Card>
-        <CardHeader className="py-3 flex flex-row items-center justify-between">
+      <Card className="min-w-0 overflow-hidden">
+        <CardHeader className="py-3 flex flex-row items-center justify-between min-w-0">
           <CardTitle className="text-sm font-medium">Report Preview</CardTitle>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -408,11 +408,11 @@ function ReportPreviewTable({
             </DropdownMenuContent>
           </DropdownMenu>
         </CardHeader>
-        <CardContent className="p-0">
-          <div className="border rounded-lg overflow-hidden mx-4 mb-4">
-            <ScrollArea className="max-h-[300px]">
+        <CardContent className="min-w-0 overflow-hidden p-0">
+          <div className="mx-4 mb-4 min-w-0 max-w-full overflow-hidden rounded-lg border">
+            <div className="max-h-[300px] max-w-full overflow-auto">
               <div className="min-w-max">
-                <Table>
+                <Table className="w-max min-w-full">
                   <TableHeader className="sticky top-0 bg-muted z-10">
                     <TableRow>
                       {result.columns.map((column) => (
@@ -456,10 +456,9 @@ function ReportPreviewTable({
                   </TableBody>
                 </Table>
               </div>
-              <ScrollBar orientation="horizontal" />
-            </ScrollArea>
+            </div>
           </div>
-          <div className="flex items-center justify-between px-4 py-2 border-t bg-muted/30 text-xs text-muted-foreground">
+          <div className="flex min-w-0 items-center justify-between gap-3 border-t bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
             <span>Rows: {result.metadata.rowCount} of max {previewLimit}</span>
             <span>Execution: {result.metadata.executionMs} ms</span>
           </div>

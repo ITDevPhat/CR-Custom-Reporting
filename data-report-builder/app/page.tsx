@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import {
   DndContext,
   DragEndEvent,
@@ -36,8 +36,9 @@ import { GripVertical, Calculator, Sigma, FunctionSquare } from 'lucide-react'
 import {
   ReportApiError,
   executeReportQuery,
-  renderReport,
+  renderReportExecution,
   type QueryResult,
+  createNotificationsFromResponse,
   type ReportFilterDraft,
   type ReportFilterFieldOption,
   type ReportSortDraft,
@@ -71,6 +72,82 @@ import {
 
 const USE_DEMO_SCHEMA = process.env.NEXT_PUBLIC_USE_DEMO_SCHEMA === 'true'
 const DEFAULT_DATASET_ID = USE_DEMO_SCHEMA ? 'sales' : null
+const CONNECTED_SOURCE_STORAGE_KEY = 'report-builder.connected-source.v1'
+
+type PersistedConnectedSource = {
+  connectionId: string
+  connectionName: string
+  connection?: Omit<SqlServerConnectionRequest, 'password'>
+  database: string
+  selectedTables: { schema: string; table: string }[]
+  selectedFields?: SelectedField[]
+  calculatedFields?: CalculatedField[]
+  reportFilters?: ReportFilterDraft[]
+  reportSorts?: ReportSortDraft[]
+  appliedFilters?: AppliedFilter[]
+  appliedSorts?: AppliedSort[]
+  reportTitle?: string
+  reportDescription?: string
+  relationships?: DatasetMetadataResponse['relationships']
+  datasetId: string
+  semanticModelVersion: string
+  connectedAtUtc: string
+  updatedAtUtc?: string
+}
+
+function readPersistedConnectedSource(): PersistedConnectedSource | null {
+  if (typeof window === 'undefined') return null
+
+  const raw = window.localStorage.getItem(CONNECTED_SOURCE_STORAGE_KEY)
+  if (!raw) return null
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<PersistedConnectedSource>
+    if (!parsed.connectionId || !parsed.datasetId || !parsed.connectionName) {
+      window.localStorage.removeItem(CONNECTED_SOURCE_STORAGE_KEY)
+      return null
+    }
+
+    return {
+      connectionId: parsed.connectionId,
+      connectionName: parsed.connectionName,
+      connection: parsed.connection,
+      database: parsed.database ?? '',
+      selectedTables: Array.isArray(parsed.selectedTables) ? parsed.selectedTables : [],
+      selectedFields: Array.isArray(parsed.selectedFields) ? parsed.selectedFields : [],
+      calculatedFields: Array.isArray(parsed.calculatedFields) ? parsed.calculatedFields : [],
+      reportFilters: Array.isArray(parsed.reportFilters) ? parsed.reportFilters : [],
+      reportSorts: Array.isArray(parsed.reportSorts) ? parsed.reportSorts : [],
+      appliedFilters: Array.isArray(parsed.appliedFilters) ? parsed.appliedFilters : [],
+      appliedSorts: Array.isArray(parsed.appliedSorts) ? parsed.appliedSorts : [],
+      reportTitle: parsed.reportTitle,
+      reportDescription: parsed.reportDescription,
+      relationships: Array.isArray(parsed.relationships) ? parsed.relationships : [],
+      datasetId: parsed.datasetId,
+      semanticModelVersion: parsed.semanticModelVersion ?? 'v1',
+      connectedAtUtc: parsed.connectedAtUtc ?? new Date().toISOString(),
+      updatedAtUtc: parsed.updatedAtUtc,
+    }
+  } catch {
+    window.localStorage.removeItem(CONNECTED_SOURCE_STORAGE_KEY)
+    return null
+  }
+}
+
+function sanitizeConnection(connection: SqlServerConnectionRequest): Omit<SqlServerConnectionRequest, 'password'> {
+  const { password: _password, ...safeConnection } = connection
+  return safeConnection
+}
+
+function writePersistedConnectedSource(source: PersistedConnectedSource) {
+  if (typeof window === 'undefined') return
+  window.localStorage.setItem(CONNECTED_SOURCE_STORAGE_KEY, JSON.stringify(source))
+}
+
+function clearPersistedConnectedSource() {
+  if (typeof window === 'undefined') return
+  window.localStorage.removeItem(CONNECTED_SOURCE_STORAGE_KEY)
+}
 
 function formatExpressionErrors(errors: ExpressionValidationResult['errors']) {
   if (!errors?.length) return 'Expression validation failed'
@@ -186,6 +263,9 @@ export default function ReportBuilderPage() {
   const [connectSourceOpen, setConnectSourceOpen] = useState(false)
   const [connectedSource, setConnectedSource] = useState<string | null>(null)
   const [loadedTables, setLoadedTables] = useState<TableSchema[] | null>(null)
+  const [selectedSourceTables, setSelectedSourceTables] = useState<{ schema: string; table: string }[]>([])
+  const [persistedConnection, setPersistedConnection] = useState<Omit<SqlServerConnectionRequest, 'password'> | null>(null)
+  const hasHydratedPersistedSource = useRef(false)
   
   // Filter and Sort state
   const [appliedFilters, setAppliedFilters] = useState<AppliedFilter[]>([])
@@ -201,6 +281,74 @@ export default function ReportBuilderPage() {
       },
     })
   )
+
+  useEffect(() => {
+    if (USE_DEMO_SCHEMA) return
+
+    const persisted = readPersistedConnectedSource()
+    if (!persisted) return
+
+    setDatasetId(persisted.datasetId)
+    setConnectionId(persisted.connectionId)
+    setConnectedSource(persisted.connectionName)
+    setSelectedSourceTables(persisted.selectedTables)
+    setPersistedConnection(persisted.connection ?? null)
+    if (persisted.connection) {
+      setSourceConnection({ ...persisted.connection, password: '' })
+    }
+    if (persisted.selectedFields?.length) setSelectedFields(persisted.selectedFields)
+    if (persisted.calculatedFields?.length) setCalculatedFields(persisted.calculatedFields)
+    if (persisted.reportFilters?.length) setReportFilters(persisted.reportFilters)
+    if (persisted.reportSorts?.length) setReportSorts(persisted.reportSorts)
+    if (persisted.appliedFilters?.length) setAppliedFilters(persisted.appliedFilters)
+    if (persisted.appliedSorts?.length) setAppliedSorts(persisted.appliedSorts)
+    if (persisted.reportTitle) setReportTitle(persisted.reportTitle)
+    if (persisted.reportDescription) setReportDescription(persisted.reportDescription)
+    setMetadataLoading(true)
+    setMetadataError(null)
+    hasHydratedPersistedSource.current = true
+  }, [])
+
+  useEffect(() => {
+    if (!datasetId || !connectionId || !connectedSource) return
+
+    const persisted = readPersistedConnectedSource()
+    writePersistedConnectedSource({
+      connectionId,
+      connectionName: connectedSource,
+      connection: persistedConnection ?? persisted?.connection,
+      database: persistedConnection?.database ?? persisted?.database ?? '',
+      selectedTables: selectedSourceTables.length > 0 ? selectedSourceTables : persisted?.selectedTables ?? [],
+      selectedFields,
+      calculatedFields,
+      reportFilters,
+      reportSorts,
+      appliedFilters,
+      appliedSorts,
+      reportTitle,
+      reportDescription,
+      relationships: metadata?.relationships ?? persisted?.relationships ?? [],
+      datasetId,
+      semanticModelVersion: persisted?.semanticModelVersion ?? 'v1',
+      connectedAtUtc: persisted?.connectedAtUtc ?? new Date().toISOString(),
+      updatedAtUtc: new Date().toISOString(),
+    })
+  }, [
+    appliedFilters,
+    appliedSorts,
+    calculatedFields,
+    connectedSource,
+    connectionId,
+    datasetId,
+    metadata?.relationships,
+    persistedConnection,
+    reportDescription,
+    reportFilters,
+    reportSorts,
+    reportTitle,
+    selectedFields,
+    selectedSourceTables,
+  ])
 
   useEffect(() => {
     let isMounted = true
@@ -221,6 +369,7 @@ export default function ReportBuilderPage() {
         if (!isMounted) return
         setMetadata(response)
         setConnectionId(response.connectionId || null)
+        setConnectedSource((current) => current ?? response.displayName)
 
         if (process.env.NODE_ENV === 'development') {
           console.log('Active dataset', datasetId)
@@ -498,6 +647,7 @@ export default function ReportBuilderPage() {
   }, [])
 
   const clearSource = useCallback(() => {
+    clearPersistedConnectedSource()
     setDatasetId(null)
     setConnectionId(null)
     setSourceConnection(null)
@@ -506,6 +656,8 @@ export default function ReportBuilderPage() {
     setMetadataLoading(false)
     setConnectedSource(null)
     setLoadedTables(null)
+    setSelectedSourceTables([])
+    setPersistedConnection(null)
     setSelectedFields([])
     setAppliedFilters([])
     setAppliedSorts([])
@@ -598,7 +750,41 @@ export default function ReportBuilderPage() {
         throw new Error('Selected fields are not available in the current semantic model.')
       }
 
-      const queryResult = await executeReportQuery(request)
+      const response = await executeReportQuery(request)
+      const notifications = createNotificationsFromResponse(response)
+      notifications.forEach((notification) => {
+        if (notification.severity === 'error') {
+          toast.error(notification.message, { description: notification.suggestedFix || notification.code })
+        } else if (notification.severity === 'warning') {
+          toast.warning(notification.message, { description: notification.suggestedFix || notification.code })
+        }
+      })
+
+      if (!response.success) {
+        setRunError(`Validation failed with ${response.metadata.errorCount} error(s).`)
+        setErrorSql(response.compilation?.sql ?? null)
+        return
+      }
+
+      const queryResult: QueryResult = {
+        status: 'success',
+        executionId: response.executionId,
+        artifactKey: response.artifactKey,
+        queryFingerprint: response.queryFingerprint,
+        semanticModelVersion: response.semanticModelVersion,
+        columns: response.columns,
+        rows: response.data,
+        metadata: {
+          rowCount: response.data.length,
+          executionMs: response.metadata.totalDurationMs,
+          sql: response.compilation?.sql ?? '',
+          parameters: response.compilation?.parameters ?? {},
+          warnings: notifications
+            .filter((n) => n.severity === 'warning')
+            .map((n) => ({ code: n.code, message: n.message })),
+        },
+      }
+
       setResult(queryResult)
 
       const now = new Date()
@@ -647,13 +833,12 @@ export default function ReportBuilderPage() {
       setIsExporting(true)
       toast.info('Preparing document to download. Please wait...')
 
-      const query = buildVisualQueryRequest()
-      const response = await renderReport({
-        format: normalizedFormat,
-        reportTitle,
-        query,
-        exportFullData: true,
-      })
+      if (!result?.executionId) {
+        toast.warning('Run the report before exporting from the saved snapshot.')
+        return
+      }
+
+      const response = await renderReportExecution(result.executionId, normalizedFormat)
 
       const contentType = (response.headers.get('content-type') ?? '').toLowerCase()
 
@@ -695,12 +880,18 @@ export default function ReportBuilderPage() {
 
       toast.success('Download started.')
     } catch (error) {
-      console.error('Report export failed', error)
-      toast.error('Failed to prepare document. Please try again.')
+      const isFetchFailure = error instanceof TypeError && error.message === 'Failed to fetch'
+      if (isFetchFailure) {
+        console.warn('Report export request was interrupted after the browser started the download.')
+        toast.warning('Download may already be in progress. If no file appears, try exporting again.')
+      } else {
+        console.error('Report export failed', error)
+        toast.error('Failed to prepare document. Please try again.')
+      }
     } finally {
       setIsExporting(false)
     }
-  }, [buildVisualQueryRequest, connectionId, datasetId, metadata, reportTitle, selectedFields.length])
+  }, [connectionId, datasetId, metadata, result?.executionId, selectedFields.length])
 
   const saveDraft = useCallback(async (duplicate: boolean) => {
     try {
@@ -731,6 +922,28 @@ export default function ReportBuilderPage() {
     setMetadata(dataset.metadata)
     setLoadedTables(null)
     setConnectedSource(dataset.displayName)
+    setSelectedSourceTables(dataset.selectedTables)
+    setPersistedConnection(sanitizeConnection(dataset.connection))
+    writePersistedConnectedSource({
+      connectionId: dataset.connectionId,
+      connectionName: dataset.displayName,
+      connection: sanitizeConnection(dataset.connection),
+      database: dataset.connection.database,
+      selectedTables: dataset.selectedTables,
+      selectedFields: [],
+      calculatedFields: [],
+      reportFilters: [],
+      reportSorts: [],
+      appliedFilters: [],
+      appliedSorts: [],
+      reportTitle,
+      reportDescription,
+      relationships: dataset.metadata.relationships,
+      datasetId: dataset.datasetId,
+      semanticModelVersion: 'v1',
+      connectedAtUtc: new Date().toISOString(),
+      updatedAtUtc: new Date().toISOString(),
+    })
     setSelectedFields([])
     setAppliedFilters([])
     setAppliedSorts([])
@@ -739,7 +952,7 @@ export default function ReportBuilderPage() {
     setResult(null)
     setRuntimePayload(null)
     setCalculatedFields([])
-  }, [datasetId, selectedFields.length])
+  }, [datasetId, reportDescription, reportTitle, selectedFields.length])
 
   const hasDataset = semanticModel.isConnected
 

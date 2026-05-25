@@ -84,7 +84,7 @@ export type DatasetMetadataResponse = {
   relationships: MetadataRelationship[]
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_REPORT_API_URL ?? 'http://localhost:5000'
+const API_BASE = process.env.NEXT_PUBLIC_REPORT_API_URL ?? 'http://localhost:5224'
 
 export async function getDatasetMetadata(datasetId: string): Promise<DatasetMetadataResponse> {
   const res = await fetch(`${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/metadata`)

@@ -75,6 +75,7 @@ docker-compose.override.yml
 # ---------- Test ----------
 TestResults/
 coverage-results/
+ReportPlatform/ReportArtifacts/
 
 # ---------- Generated ----------
 *.generated.cs

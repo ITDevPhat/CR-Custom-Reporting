@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
 	<PropertyGroup>
 		<TargetFramework>net10.0</TargetFramework>
@@ -9,12 +9,15 @@
 	<ItemGroup>
 		<PackageReference Include="FluentValidation.AspNetCore" Version="11.3.1" />
 		<PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+		<PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
+	</ItemGroup>
+	<ItemGroup>
 		<PackageReference Include="Telerik.Drawing.Skia" Version="20.1.26.520" />
 		<PackageReference Include="Telerik.Reporting" Version="20.1.26.520" />
 		<PackageReference Include="Telerik.Reporting.OpenXmlRendering" Version="20.1.26.520" />
-		<PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
-	</ItemGroup>
+		<PackageReference Include="Telerik.Reporting.Services.AspNetCore" Version="20.1.26.520" />
 
+	</ItemGroup>
 	<ItemGroup>
 		<ProjectReference Include="..\Report.QueryEngine\Report.QueryEngine.csproj" />
 		<ProjectReference Include="..\Report.Contracts\Report.Contracts.csproj" />

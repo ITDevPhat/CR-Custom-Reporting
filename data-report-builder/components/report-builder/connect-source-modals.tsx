@@ -48,6 +48,7 @@ export type LoadedDataset = {
   connectionId: string
   displayName: string
   connection: SqlServerConnectionRequest
+  selectedTables: { schema: string; table: string }[]
   metadata: DatasetMetadataResponse
 }
 
@@ -60,9 +61,9 @@ interface ConnectSourceFlowProps {
 const initialConnection: SqlServerConnectionRequest = {
   provider: 'sqlserver',
   server: 'localhost',
-  database: '',
+  database: 'AdventureWorksDW2025',
   authenticationType: 'sql',
-  username: 'sa',
+  username: 'itdevphat',
   password: '',
   trustServerCertificate: true,
   encrypt: false,
@@ -251,6 +252,7 @@ export function ConnectSourceFlow({ open, onOpenChange, onDatasetLoaded }: Conne
         connectionId: response.connectionId,
         displayName: response.metadata.displayName,
         connection,
+        selectedTables: selected,
         metadata: response.metadata,
       })
       if (response.consistency?.length) {

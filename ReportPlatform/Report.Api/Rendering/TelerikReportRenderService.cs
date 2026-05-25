@@ -1,9 +1,11 @@
-using System.Globalization;
-using System.Text;
 using Microsoft.Extensions.Logging;
 using Report.Contracts.Exports;
 using Report.Contracts.Requests;
+using Report.QueryEngine.Compilation;
+using Report.QueryEngine.Execution;
 using Report.QueryEngine.Services;
+using System.Globalization;
+using System.Text;
 
 namespace Report.Api.Rendering;
 
@@ -15,17 +17,19 @@ public sealed class TelerikReportRenderService : IReportRenderService
     private readonly ILogger<TelerikReportRenderService> _logger;
 
     public TelerikReportRenderService(
-        ReportQueryService queryService,
-        ITelerikReportFactory factory,
-        IReportConnectionStringResolver connectionStringResolver,
-        ILogger<TelerikReportRenderService> logger)
+    ReportQueryService queryService,
+    ITelerikReportFactory factory,
+    IReportConnectionStringResolver connectionStringResolver,
+    IQueryExecutor queryExecutor,
+    ILogger<TelerikReportRenderService> logger)
     {
         _queryService = queryService;
         _factory = factory;
         _connectionStringResolver = connectionStringResolver;
+        _queryExecutor = queryExecutor;
         _logger = logger;
     }
-
+    private readonly IQueryExecutor _queryExecutor;
     public async Task<RenderedReportResult> RenderAsync(
         RenderReportRequest request,
         CancellationToken ct)
@@ -44,20 +48,27 @@ public sealed class TelerikReportRenderService : IReportRenderService
 
         if (format == "CSV")
         {
-            var result = await _queryService.ExecuteAsync(exportQuery, ct);
-            var csvBytes = CsvExportWriter.Write(result);
+            var compiledCsv = await _queryService.CompileForExportAsync(exportQuery, ct);
 
-            _logger.LogInformation(
-                "CSV export rows={RowCount}, columns={ColumnCount}, bytes={Bytes}",
-                result.Rows.Count,
-                result.Columns.Count,
-                csvBytes.Length);
+            var queryResult = await _queryExecutor.ExecuteAsync(
+                compiledCsv.ConnectionId,
+                new SqlCompilationResult
+                {
+                    Sql = compiledCsv.Sql,
+                    Parameters = compiledCsv.Parameters.ToDictionary(
+                        kvp => kvp.Key,
+                        kvp => kvp.Value)
+                },
+                compiledCsv.ExpectedColumns,
+                ct);
+
+            var csvBytes = CsvExportWriter.Write(queryResult);
 
             return BuildResult(
                 format,
                 csvBytes,
-                result.Rows.Count,
-                result.Columns.Count);
+                queryResult.Rows.Count,
+                queryResult.Columns.Count);
         }
 
         var compiled = await _queryService.CompileForExportAsync(exportQuery, ct);
@@ -83,7 +94,10 @@ public sealed class TelerikReportRenderService : IReportRenderService
             };
 
             var processor = new Telerik.Reporting.Processing.ReportProcessor();
-            var rendered = processor.RenderReport(format, source, null)
+            var rendered = processor.RenderReport(
+                format,
+                source,
+                new System.Collections.Hashtable())
                 ?? throw new ReportExportException($"Telerik renderer returned null output for '{format}'.");
 
             bytes = rendered.DocumentBytes
@@ -123,7 +137,7 @@ public sealed class TelerikReportRenderService : IReportRenderService
             Values = [.. source.Values],
             Filters = [.. source.Filters],
             Sort = [.. source.Sort],
-            Limit = 0,
+            Limit = int.MaxValue,
             Offset = 0
         };
     }

@@ -1,6 +1,8 @@
 'use client'
 
-import { Database, Network, RefreshCw, User } from 'lucide-react'
+// [NEW] Added Link and FileText imports for My Reports navigation
+import Link from 'next/link'
+import { Database, Network, RefreshCw, User, FileText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
@@ -67,6 +69,13 @@ export function GlobalToolbar({
         >
           <RefreshCw className="h-4 w-4" />
           Refresh Metadata
+        </Button>
+         {/* [NEW] My Reports navigation button - links to /report-runs page */}
+        <Button variant="outline" size="sm" className="gap-2" asChild>
+          <Link href="/report-runs">
+            <FileText className="h-4 w-4" />
+            My Reports
+          </Link>
         </Button>
       </div>
       

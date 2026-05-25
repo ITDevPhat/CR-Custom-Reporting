@@ -9,6 +9,7 @@
 	<ItemGroup>
 		<Folder Include="Plans\" />
 		<Folder Include="Results\" />
+		<Folder Include="Artifacts\" />
 	</ItemGroup>
 
 </Project>

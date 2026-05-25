@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Report.Contracts.Results;
 
@@ -8,48 +9,53 @@ public static class CsvExportWriter
     public static byte[] Write(QueryResult result)
     {
         var sb = new StringBuilder();
-        var columns = result.Columns.Select(c => c.Name).ToArray();
 
-        sb.AppendLine(string.Join(',', columns.Select(Escape)));
+        sb.AppendLine(string.Join(
+            ",",
+            result.Columns.Select(c => Escape(c.Name))));
 
         foreach (var row in result.Rows)
         {
-            var values = columns
-                .Select(col => row.TryGetValue(col, out var value) ? value : null)
-                .Select(FormatValue);
+            var values = result.Columns.Select(column =>
+            {
+                row.TryGetValue(column.Name, out var value);
+                return Escape(FormatValue(value));
+            });
 
-            sb.AppendLine(string.Join(',', values));
+            sb.AppendLine(string.Join(",", values));
         }
 
-        var csv = sb.ToString();
-        var bom = Encoding.UTF8.GetPreamble();
-        var payload = Encoding.UTF8.GetBytes(csv);
-        return [.. bom, .. payload];
+        return Encoding.UTF8.GetPreamble()
+            .Concat(Encoding.UTF8.GetBytes(sb.ToString()))
+            .ToArray();
     }
 
     private static string FormatValue(object? value)
     {
-        if (value is null)
+        return value switch
         {
-            return string.Empty;
-        }
-
-        return Escape(value switch
-        {
-            DateTime dt => dt.ToString("O"),
-            DateTimeOffset dto => dto.ToString("O"),
+            null => string.Empty,
+            DBNull => string.Empty,
+            DateTime dt => dt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
+            DateTimeOffset dto => dto.ToString("yyyy-MM-dd HH:mm:ss zzz", CultureInfo.InvariantCulture),
+            decimal d => d.ToString(CultureInfo.InvariantCulture),
+            double d => d.ToString(CultureInfo.InvariantCulture),
+            float f => f.ToString(CultureInfo.InvariantCulture),
+            IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
             _ => value.ToString() ?? string.Empty
-        });
+        };
     }
 
     private static string Escape(string value)
     {
-        var escaped = value.Replace("\"", "\"\"");
-        if (escaped.IndexOfAny([',', '"', '\r', '\n']) >= 0)
-        {
-            return $"\"{escaped}\"";
-        }
+        var mustQuote =
+            value.Contains(',') ||
+            value.Contains('"') ||
+            value.Contains('\r') ||
+            value.Contains('\n');
 
-        return escaped;
+        var escaped = value.Replace("\"", "\"\"");
+
+        return mustQuote ? $"\"{escaped}\"" : escaped;
     }
 }
