@@ -4,7 +4,7 @@ import { useDroppable } from '@dnd-kit/core'
 import {
   SortableContext,
   useSortable,
-  horizontalListSortingStrategy,
+  rectSortingStrategy,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { 
@@ -200,7 +200,7 @@ function SortableFieldChip({ field, onRemove, onUpdate }: SortableFieldChipProps
             ref={setNodeRef}
             style={style}
             className={cn(
-              'flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2 shadow-sm',
+              'flex min-w-0 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-sm',
               'hover:border-primary/50 transition-colors',
               isDragging && 'opacity-50 shadow-lg border-primary'
             )}
@@ -208,28 +208,28 @@ function SortableFieldChip({ field, onRemove, onUpdate }: SortableFieldChipProps
             <button
               {...attributes}
               {...listeners}
-              className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground"
+              className="shrink-0 cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
             >
               <GripVertical className="h-4 w-4" />
             </button>
             {getKindIcon(field.kind)}
-            <div className="flex flex-col gap-0.5">
-              <span className="font-medium text-sm">{field.columnName}</span>
-      <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span className="truncate text-sm font-medium">{field.columnName}</span>
+              <span className="truncate text-[10px] text-muted-foreground">
                 {getSourceInfo()}
               </span>
             </div>
             {field.kind === 'field' || field.kind === 'column' ? (
               <Badge 
                 variant="secondary" 
-                className={cn('text-[10px] px-1.5 py-0 font-normal ml-1', getDataTypeBadgeColor(field.dataType))}
+                className={cn('ml-1 shrink-0 px-1.5 py-0 text-[10px] font-normal', getDataTypeBadgeColor(field.dataType))}
               >
                 {field.dataType}
               </Badge>
             ) : (
               <Badge 
                 variant="secondary" 
-                className={cn('text-[10px] px-1.5 py-0 font-normal ml-1 capitalize', getKindBadgeColor(field.kind))}
+                className={cn('ml-1 shrink-0 px-1.5 py-0 text-[10px] font-normal capitalize', getKindBadgeColor(field.kind))}
               >
                 {getKindLabel(field.kind)}
               </Badge>
@@ -245,7 +245,7 @@ function SortableFieldChip({ field, onRemove, onUpdate }: SortableFieldChipProps
                     ? { aggregation, placement: 'values' }
                     : { aggregation: null, placement: 'rows' })
                 }}
-                className="h-6 rounded border border-border bg-background px-1 text-[10px] text-foreground"
+                className="h-6 max-w-[128px] shrink-0 rounded border border-border bg-background px-1 text-[10px] text-foreground"
                 aria-label={`Aggregation for ${field.columnName}`}
               >
                 <option value="">Don't summarize</option>
@@ -259,7 +259,7 @@ function SortableFieldChip({ field, onRemove, onUpdate }: SortableFieldChipProps
             )}
             <button
               onClick={() => onRemove(field.id)}
-              className="ml-1 text-muted-foreground hover:text-destructive transition-colors"
+              className="ml-1 shrink-0 text-muted-foreground transition-colors hover:text-destructive"
             >
               <X className="h-4 w-4" />
             </button>
@@ -300,10 +300,10 @@ function DropZone({
         <CardTitle className="text-sm font-medium">Selected Columns</CardTitle>
       </CardHeader>
       <CardContent>
-        <div
-          ref={setNodeRef}
-          className={cn(
-            'min-h-[100px] rounded-lg border-2 border-dashed transition-colors p-4',
+          <div
+            ref={setNodeRef}
+            className={cn(
+            'min-h-[100px] min-w-0 max-w-full overflow-hidden rounded-lg border-2 border-dashed p-4 transition-colors',
             isOver ? 'border-primary bg-primary/5' : 'border-muted-foreground/25',
             selectedFields.length === 0 && 'flex items-center justify-center'
           )}
@@ -315,9 +315,9 @@ function DropZone({
           ) : (
             <SortableContext
               items={selectedFields.map(f => f.id)}
-              strategy={horizontalListSortingStrategy}
+              strategy={rectSortingStrategy}
             >
-              <div className="flex flex-wrap gap-2">
+              <div className="grid max-h-40 min-w-0 max-w-full grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-2 overflow-y-auto overflow-x-hidden pr-1">
                 {selectedFields.map((field) => (
                   <SortableFieldChip
                     key={field.id}
@@ -818,8 +818,8 @@ export function ReportWorkspace({
 }: ReportWorkspaceProps) {
   return (
     <div className="h-full flex flex-col bg-muted/30 overflow-hidden">
-      <ScrollArea className="flex-1 min-h-0">
-        <div className="p-4 space-y-4">
+      <ScrollArea className="flex-1 min-h-0 min-w-0">
+        <div className="min-w-0 max-w-full space-y-4 overflow-hidden p-4">
           <DropZone selectedFields={selectedFields} onRemoveField={onRemoveField} onUpdateField={onUpdateField} />
         <ReportPreviewTable
           selectedFields={selectedFields}

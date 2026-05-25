@@ -1122,7 +1122,7 @@ export default function ReportBuilderPage() {
         
         {/* Main Content Area - Takes remaining height */}
         <div className="flex-1 flex min-h-0 overflow-hidden">
-          <div className="w-[30%] min-w-[280px] max-w-[400px] min-h-0">
+          <div className="w-[30%] min-w-[280px] max-w-[400px] min-h-0 shrink-0 overflow-hidden">
             <SchemaPanel
               selectedFields={selectedFields}
               onAddField={addField}
@@ -1139,7 +1139,7 @@ export default function ReportBuilderPage() {
               metadataError={metadataError}
             />
           </div>
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
             <ReportWorkspace
               selectedFields={selectedFields}
               onRemoveField={removeField}

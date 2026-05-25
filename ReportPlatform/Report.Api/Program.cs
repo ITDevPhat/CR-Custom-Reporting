@@ -96,6 +96,17 @@ builder.Services.Configure<ReportQueryServiceOptions>(options =>
     options.StorageMode = storageMode;
 });
 
+string? localArtifactRoot = null;
+if (!string.Equals(storageMode, "InMemory", StringComparison.OrdinalIgnoreCase))
+{
+    var configuredRoot = builder.Configuration["ReportArtifacts:Local:RootPath"]
+        ?? Path.Combine("..", "ReportArtifacts");
+
+    localArtifactRoot = Path.IsPathRooted(configuredRoot)
+        ? configuredRoot
+        : Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, configuredRoot));
+}
+
 var executionStoreMode = builder.Configuration["ReportExecutionStore:Mode"] ?? "SqlServer";
 var executionStoreConnectionString = builder.Configuration["ReportExecutionStore:ConnectionString"] ?? "";
 if (string.Equals(executionStoreMode, "SqlServer", StringComparison.OrdinalIgnoreCase) &&
@@ -108,7 +119,13 @@ if (string.Equals(executionStoreMode, "SqlServer", StringComparison.OrdinalIgnor
 }
 else
 {
-    builder.Services.AddSingleton<IReportExecutionRepository, InMemoryReportExecutionRepository>();
+    builder.Services.AddSingleton<IReportExecutionRepository>(_ =>
+    {
+        var memory = new InMemoryReportExecutionRepository();
+        return localArtifactRoot is null
+            ? memory
+            : new ArtifactBackedReportExecutionRepository(memory, localArtifactRoot);
+    });
     builder.Logging.AddFilter("ReportExecutionStore", LogLevel.Warning);
 }
 
@@ -118,13 +135,8 @@ if (string.Equals(storageMode, "InMemory", StringComparison.OrdinalIgnoreCase))
 }
 else
 {
-    var configuredRoot = builder.Configuration["ReportArtifacts:Local:RootPath"]
-        ?? Path.Combine("..", "ReportArtifacts");
-
-    var artifactRoot = Path.IsPathRooted(configuredRoot)
-        ? configuredRoot
-        : Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, configuredRoot));
-
+    var artifactRoot = localArtifactRoot
+        ?? throw new InvalidOperationException("Local artifact root was not configured.");
     Directory.CreateDirectory(artifactRoot);
 
     builder.Services.AddSingleton<IReportArtifactStore>(_ =>
