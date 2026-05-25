@@ -1,7 +1,9 @@
-using Report.Contracts.Requests;
+using System.Diagnostics;
 using Report.Contracts.Exports;
+using Report.Contracts.Requests;
 using Report.Contracts.Results;
 using Report.Contracts.Semantic;
+using Report.Contracts.Validation;
 using Report.Metadata.Stores;
 using Report.QueryEngine.Binding;
 using Report.QueryEngine.Compilation;
@@ -11,7 +13,8 @@ using Report.QueryEngine.Measures;
 using Report.QueryEngine.Planning;
 using Report.QueryEngine.Relationships;
 using Report.QueryEngine.Validation;
-using Microsoft.Extensions.Logging;
+using Report.QueryEngine.Validation.Logging;
+using Report.QueryEngine.Validation.Stages;
 
 namespace Report.QueryEngine.Services;
 
@@ -25,145 +28,71 @@ public sealed class ReportQueryService
     private readonly LogicalPlanBuilder _planBuilder;
     private readonly SqlCompiler _sqlCompiler;
     private readonly IQueryExecutor _queryExecutor;
-    private readonly GrainValidationService _grainValidationService;
-    private readonly ILogger<ReportQueryService> _logger;
+    private readonly ValidationLogger _validationLogger;
+    private readonly SemanticBindingValidator _stage1;
+    private readonly ContextBuildingValidator _stage2;
+    private readonly MeasureExpansionValidator _stage3;
+    private readonly RelationshipTraversalValidator _stage4;
+    private readonly LogicalPlanValidator _stage5;
+    private readonly SqlCompilationValidator _stage6;
+    private readonly QueryExecutionValidator _stage7;
 
-    public ReportQueryService(
-        ISemanticModelStore modelStore,
-        SemanticModelBinder binder,
-        EvaluationContextBuilder contextBuilder,
-        MeasureExpansionEngine measureEngine,
-        RelationshipTraversalEngine relationshipEngine,
-        LogicalPlanBuilder planBuilder,
-        SqlCompiler sqlCompiler,
-        IQueryExecutor queryExecutor,
-        GrainValidationService grainValidationService,
-        ILogger<ReportQueryService> logger)
+    public ReportQueryService(ISemanticModelStore modelStore, SemanticModelBinder binder, EvaluationContextBuilder contextBuilder, MeasureExpansionEngine measureEngine, RelationshipTraversalEngine relationshipEngine, LogicalPlanBuilder planBuilder, SqlCompiler sqlCompiler, IQueryExecutor queryExecutor, ValidationLogger validationLogger, SemanticBindingValidator stage1, ContextBuildingValidator stage2, MeasureExpansionValidator stage3, RelationshipTraversalValidator stage4, LogicalPlanValidator stage5, SqlCompilationValidator stage6, QueryExecutionValidator stage7)
+    { _modelStore = modelStore; _binder = binder; _contextBuilder = contextBuilder; _measureEngine = measureEngine; _relationshipEngine = relationshipEngine; _planBuilder = planBuilder; _sqlCompiler = sqlCompiler; _queryExecutor = queryExecutor; _validationLogger = validationLogger; _stage1 = stage1; _stage2 = stage2; _stage3 = stage3; _stage4 = stage4; _stage5 = stage5; _stage6 = stage6; _stage7 = stage7; }
+
+    public Task<object> CompileAsync(VisualQueryRequest request, CancellationToken ct) => Task.FromResult<object>(new { message = "Use execute for comprehensive validation response." });
+
+    public async Task<ComprehensiveQueryResponse> ExecuteAsync(VisualQueryRequest request, CancellationToken ct)
     {
-        _modelStore = modelStore;
-        _binder = binder;
-        _contextBuilder = contextBuilder;
-        _measureEngine = measureEngine;
-        _relationshipEngine = relationshipEngine;
-        _planBuilder = planBuilder;
-        _sqlCompiler = sqlCompiler;
-        _queryExecutor = queryExecutor;
-        _grainValidationService = grainValidationService;
-        _logger = logger;
-    }
+        var sw = Stopwatch.StartNew();
+        var results = new List<ValidationResult>();
+        var model = await _modelStore.LoadAsync(request.DatasetId, ct);
+        var context = new ValidationContext(request, model);
 
-    public async Task<object> CompileAsync(VisualQueryRequest request, CancellationToken ct)
-    {
-        var result = await BuildCompilationAsync(request, ct);
+        var st1 = Run(_stage1.Validate(context)); results.Add(st1); if (!st1.IsValid) return Build(false, results, sw.ElapsedMilliseconds, null, null);
+        var st2 = Run(_stage2.Validate(context)); results.Add(st2); if (!st2.IsValid) return Build(false, results, sw.ElapsedMilliseconds, null, null);
 
-        return new
-        {
-            result.Bound,
-            result.Context,
-            result.Measures,
-            result.JoinPlan,
-            result.GrainValidation,
-            logicalPlan = result.LogicalPlan,
-            result.Sql
-        };
-    }
+        var bound = _binder.Bind(request, model);
+        var eval = _contextBuilder.Build(bound);
+        var measures = _measureEngine.Expand(eval, model);
 
-    public async Task<QueryResult> ExecuteAsync(VisualQueryRequest request, CancellationToken ct)
-    {
-        var result = await BuildCompilationAsync(request, ct);
-        var expectedColumns = BuildExpectedColumns(result.LogicalPlan);
+        var st3 = Run(_stage3.Validate(measures)); results.Add(st3); if (!st3.IsValid) return Build(false, results, sw.ElapsedMilliseconds, null, null);
 
-        var queryResult = await _queryExecutor.ExecuteAsync(
-            request.ConnectionId,
-            result.Sql,
-            expectedColumns,
-            ct);
+        var joins = _relationshipEngine.Build(eval, measures, model);
+        var st4 = Run(_stage4.Validate(joins)); results.Add(st4); if (!st4.IsValid) return Build(false, results, sw.ElapsedMilliseconds, null, null);
 
-        queryResult.Metadata.Warnings.AddRange(result.GrainValidation.Warnings.Select(w => new QueryValidationMessage
-        {
-            Code = w.Code,
-            Message = w.Message
-        }));
+        var logical = _planBuilder.Build(eval, measures, joins, model);
+        var st5 = Run(_stage5.Validate(logical)); results.Add(st5); if (!st5.IsValid) return Build(false, results, sw.ElapsedMilliseconds, null, null);
 
-        return queryResult;
+        var sql = _sqlCompiler.Compile(logical);
+        var st6 = Run(_stage6.Validate(sql)); results.Add(st6); if (!st6.IsValid) return Build(false, results, sw.ElapsedMilliseconds, sql, null);
+
+        var expected = logical.Select.Select(s => new QueryColumn { Name = s.Alias, Type = s.Role == "metric" ? "decimal" : "string" }).ToList();
+        var queryResult = await _queryExecutor.ExecuteAsync(request.ConnectionId, sql, expected, ct);
+        var st7 = Run(_stage7.Validate(queryResult)); results.Add(st7);
+
+        return Build(st7.IsValid && results.All(r => r.IsValid), results, sw.ElapsedMilliseconds, sql, queryResult);
     }
 
     public async Task<CompiledReportQuery> CompileForExportAsync(VisualQueryRequest request, CancellationToken ct)
     {
-        var result = await BuildCompilationAsync(request, ct);
-        var expectedColumns = BuildExpectedColumns(result.LogicalPlan);
-        var warnings = result.GrainValidation.Warnings.Select(w => new QueryValidationMessage
-        {
-            Code = w.Code,
-            Message = w.Message
-        }).ToList();
+        var response = await ExecuteAsync(request, ct);
+        if (!response.Success || response.Compilation is null) throw new InvalidOperationException("Cannot export invalid query");
+        return new CompiledReportQuery { ConnectionId = request.ConnectionId, Sql = response.Compilation.Sql, Parameters = response.Compilation.Parameters, ExpectedColumns = response.Columns.Select(c => new QueryColumn { Name = c.Name, Type = c.Type }).ToList(), Warnings = response.ValidationResults.SelectMany(v => v.Warnings).Select(w => new QueryValidationMessage { Code = w.Code, Message = w.Message }).ToList() };
+    }
 
-        return new CompiledReportQuery
+    private ValidationResult Run(ValidationResult result) { _validationLogger.LogStage(result, "query_execute"); return result; }
+
+    private static ComprehensiveQueryResponse Build(bool success, List<ValidationResult> results, long duration, SqlCompilationResult? sql, QueryResult? query)
+    {
+        return new ComprehensiveQueryResponse
         {
-            ConnectionId = request.ConnectionId,
-            Sql = result.Sql.Sql,
-            Parameters = new Dictionary<string, object?>(result.Sql.Parameters),
-            ExpectedColumns = expectedColumns,
-            Warnings = warnings,
+            Success = success,
+            Columns = success && query is not null ? query.Columns.Select(c => new ColumnMetadata { Name = c.Name, Type = c.Type }).ToList() : [],
+            Data = success && query is not null ? query.Rows : [],
+            Compilation = sql is null ? null : new CompilationResult { Success = success, Sql = sql.Sql, Parameters = sql.Parameters },
+            ValidationResults = results,
+            Metadata = new ExecutionMetadata { TotalDurationMs = duration, ErrorCount = results.Sum(r => r.Errors.Count), WarningCount = results.Sum(r => r.Warnings.Count), ExecutedStages = results.Select(r => r.Stage).ToList() }
         };
     }
-
-    private static List<QueryColumn> BuildExpectedColumns(LogicalQueryPlan logicalPlan)
-    {
-        return logicalPlan.Select
-            .Select(item => new QueryColumn
-            {
-                Name = item.Alias,
-                Type = item.Role == "metric" ? "decimal" : InferColumnType(item.Alias)
-            })
-            .ToList();
-    }
-
-    private async Task<QueryCompilationPipelineResult> BuildCompilationAsync(
-        VisualQueryRequest request,
-        CancellationToken ct)
-    {
-        var model = await _modelStore.LoadAsync(request.DatasetId, ct);
-
-        var bound = _binder.Bind(request, model);
-        var context = _contextBuilder.Build(bound);
-        var measures = _measureEngine.Expand(context, model);
-        var joinPlan = _relationshipEngine.Build(context, measures, model);
-        var grainValidation = _grainValidationService.Validate(context, measures, joinPlan, model);
-        if (!grainValidation.Valid)
-        {
-            throw new SemanticQueryValidationException(grainValidation.Errors
-                .GroupBy(e => e.Code)
-                .ToDictionary(g => g.Key, g => g.Select(e => e.Message).ToArray()));
-        }
-        var lqp = _planBuilder.Build(context, measures, joinPlan, model);
-        var sql = _sqlCompiler.Compile(lqp);
-        _logger.LogInformation("Generated SQL: {Sql}", sql.Sql);
-        _logger.LogInformation("Generated Parameters: {@Parameters}", sql.Parameters);
-
-        return new QueryCompilationPipelineResult(
-            bound,
-            context,
-            measures,
-            joinPlan,
-            grainValidation,
-            lqp,
-            sql);
-    }
-
-    private static string InferColumnType(string columnName)
-    {
-        return columnName.Contains("Year", StringComparison.OrdinalIgnoreCase)
-            ? "number"
-            : "string";
-    }
-
-    private sealed record QueryCompilationPipelineResult(
-        BoundSemanticQuery Bound,
-        EvaluationContext Context,
-        List<ExpandedMeasure> Measures,
-        JoinPlan JoinPlan,
-        GrainValidationResult GrainValidation,
-        LogicalQueryPlan LogicalPlan,
-        SqlCompilationResult Sql);
 }

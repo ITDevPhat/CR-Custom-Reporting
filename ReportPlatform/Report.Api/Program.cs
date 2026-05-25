@@ -21,6 +21,8 @@ using Report.QueryEngine.Planning;
 using Report.QueryEngine.Relationships;
 using Report.QueryEngine.Services;
 using Report.QueryEngine.Validation;
+using Report.QueryEngine.Validation.Stages;
+using Report.QueryEngine.Validation.Logging;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -70,6 +72,17 @@ builder.Services.AddScoped<SqlCompiler>();
 builder.Services.AddScoped<IQueryExecutor, SqlServerQueryExecutor>();
 builder.Services.AddScoped<ReportQueryService>();
 builder.Services.AddScoped<GrainValidationService>();
+builder.Services.Configure<ValidationOptions>(builder.Configuration.GetSection("Validation"));
+
+builder.Services.AddScoped<ValidationLogger>();
+builder.Services.AddScoped<SemanticBindingValidator>();
+builder.Services.AddScoped<ContextBuildingValidator>();
+builder.Services.AddScoped<MeasureExpansionValidator>();
+builder.Services.AddScoped<RelationshipTraversalValidator>();
+builder.Services.AddScoped<LogicalPlanValidator>();
+builder.Services.AddScoped<SqlCompilationValidator>();
+builder.Services.AddScoped<QueryExecutionValidator>();
+
 builder.Services.AddScoped<DatasetMetadataService>();
 builder.Services.AddScoped<ExpressionValidationService>();
 builder.Services.AddScoped<ITelerikReportFactory, DynamicTelerikReportFactory>();
