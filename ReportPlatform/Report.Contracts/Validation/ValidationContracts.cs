@@ -63,4 +63,8 @@ public sealed class ComprehensiveQueryResponse
     public CompilationResult? Compilation { get; init; }
     public ExecutionMetadata Metadata { get; init; } = new();
     public List<ValidationResult> ValidationResults { get; init; } = [];
+    public string? ExecutionId { get; init; }
+    public string? ArtifactKey { get; init; }
+    public string? QueryFingerprint { get; init; }
+    public string? SemanticModelVersion { get; init; }
 }

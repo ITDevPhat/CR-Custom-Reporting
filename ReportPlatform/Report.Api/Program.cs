@@ -23,6 +23,8 @@ using Report.QueryEngine.Services;
 using Report.QueryEngine.Validation;
 using Report.QueryEngine.Validation.Stages;
 using Report.QueryEngine.Validation.Logging;
+using Report.QueryEngine.Artifacts;
+using Report.Infrastructure.Artifacts;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -47,6 +49,22 @@ builder.Services.AddSingleton<IConnectionRegistry, InMemoryConnectionRegistry>()
 builder.Services.AddSingleton<IDatasetRegistry, InMemoryDatasetRegistry>();
 builder.Services.AddSingleton<IReportRegistry, InMemoryReportRegistry>();
 builder.Services.AddSingleton<ISemanticModelStore, InMemorySemanticModelStore>();
+builder.Services.AddSingleton<IReportExecutionRegistry, InMemoryReportExecutionRegistry>();
+
+builder.Services.AddScoped<ReportArtifactBuilder>();
+builder.Services.AddScoped<ReportArtifactLoader>();
+builder.Services.AddScoped<QueryFingerprintService>();
+builder.Services.AddScoped<TelerikArtifactRenderService>();
+builder.Services.AddScoped<IArtifactReportRenderer, TelerikArtifactReportRenderer>();
+
+var storageMode = builder.Configuration["ReportArtifacts:StorageMode"] ?? "Local";
+if (string.Equals(storageMode, "InMemory", StringComparison.OrdinalIgnoreCase))
+    builder.Services.AddSingleton<IReportArtifactStore, InMemoryReportArtifactStore>();
+else
+{
+    var root = builder.Configuration["ReportArtifacts:Local:RootPath"] ?? Path.Combine(AppContext.BaseDirectory, "artifacts");
+    builder.Services.AddSingleton<IReportArtifactStore>(_ => new LocalReportArtifactStore(root));
+}
 
 builder.Services.AddScoped<SqlServerSchemaDiscoveryService>();
 builder.Services.AddScoped<SemanticMetadataGenerator>();
