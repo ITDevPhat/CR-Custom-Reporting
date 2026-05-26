@@ -48,7 +48,9 @@ export type ReportExecutionsResponse = {
   isMockData?: boolean
 }
 
-const API_BASE = process.env.NEXT_PUBLIC_REPORT_API_URL ?? 'http://localhost:5224'
+const API_BASE = process.env.NEXT_PUBLIC_REPORT_API_BASE_URL
+  ?? process.env.NEXT_PUBLIC_REPORT_API_URL
+  ?? 'http://localhost:5224'
 
 /**
  * Check if we're in development mode

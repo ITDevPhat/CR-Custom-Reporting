@@ -186,6 +186,19 @@ builder.Services.AddScoped<ITelerikSnapshotReportFactory, DynamicTelerikSnapshot
 builder.Services.AddScoped<IReportSourceResolver, SnapshotReportSourceResolver>();
 builder.Services.AddScoped<IReportConnectionStringResolver, ReportConnectionStringResolver>();
 builder.Services.AddScoped<IReportRenderService, TelerikReportRenderService>();
+builder.Services.TryAddSingleton<IReportServiceConfiguration>(sp =>
+{
+    var env = sp.GetRequiredService<IWebHostEnvironment>();
+    var reportsStoragePath = Path.Combine(env.ContentRootPath, "ReportViewerStorage");
+    Directory.CreateDirectory(reportsStoragePath);
+
+    return new ReportServiceConfiguration
+    {
+        HostAppId = "ReportPlatform",
+        Storage = new Telerik.Reporting.Cache.File.FileStorage(reportsStoragePath),
+        ReportSourceResolver = sp.GetRequiredService<IReportSourceResolver>()
+    };
+});
 
 
 var app = builder.Build();
