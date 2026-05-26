@@ -100,10 +100,10 @@ const EXPORT_FORMATS = [
   { label: 'Acrobat (PDF) file', value: 'PDF', enabled: true },
   { label: 'CSV (comma delimited)', value: 'CSV', enabled: true },
   { label: 'Excel Worksheet', value: 'XLSX', enabled: true },
-  { label: 'PowerPoint Presentation', value: 'PPTX', enabled: false },
-  { label: 'Rich Text Format', value: 'RTF', enabled: false },
-  { label: 'TIFF file', value: 'TIFF', enabled: false },
-  { label: 'Word Document', value: 'DOCX', enabled: false },
+  { label: 'PowerPoint Presentation', value: 'PPTX', enabled: true },
+  { label: 'Rich Text Format', value: 'RTF', enabled: true },
+  { label: 'TIFF file', value: 'TIFF', enabled: true },
+  { label: 'Word Document', value: 'DOCX', enabled: true },
 ] as const
 
 function getDataTypeBadgeColor(dataType: string) {

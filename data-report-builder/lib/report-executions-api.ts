@@ -147,7 +147,7 @@ export async function getReportExecution(
   }
 }
 
-export type ExportFormat = 'PDF' | 'XLSX' | 'CSV' | 'DOCX'
+export type ExportFormat = 'PDF' | 'XLSX' | 'CSV' | 'DOCX' | 'PPTX' | 'RTF' | 'TIFF'
 export type ReportPreviewReference = {
   executionId: string
   reportSource: string

@@ -823,7 +823,9 @@ export default function ReportBuilderPage() {
     }
 
     const normalized = format.toUpperCase()
-    const normalizedFormat = normalized === 'PDF' || normalized === 'XLSX' || normalized === 'CSV' ? normalized : null
+    const normalizedFormat = ['PDF', 'XLSX', 'CSV', 'DOCX', 'PPTX', 'RTF', 'TIFF'].includes(normalized)
+      ? normalized
+      : null
     if (!normalizedFormat) {
       toast.error('Unsupported export format selected.')
       return
@@ -848,11 +850,15 @@ export default function ReportBuilderPage() {
         return
       }
 
-      const expectedContentType = normalizedFormat === 'PDF'
-        ? 'application/pdf'
-        : normalizedFormat === 'XLSX'
-          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-          : 'text/csv'
+      const expectedContentType = {
+        PDF: 'application/pdf',
+        XLSX: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        CSV: 'text/csv',
+        DOCX: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        PPTX: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        RTF: 'application/rtf',
+        TIFF: 'image/tiff',
+      }[normalizedFormat]
 
       const isBinaryExport = contentType.includes(expectedContentType)
       const isErrorContent = contentType.includes('application/json') || contentType.includes('text/html')

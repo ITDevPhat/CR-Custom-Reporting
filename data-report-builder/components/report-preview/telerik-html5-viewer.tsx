@@ -135,6 +135,7 @@ export function TelerikHtml5Viewer({ executionId, reportSource, serviceUrl }: Te
         const templateUrl = `${ASSET_BASE}/templates/telerikReportViewerTemplate-20.1.26.520.html`
 
         if (!initializedRef.current) {
+          $(selector).empty()
           $(selector).telerik_ReportViewer({
             serviceUrl,
             templateUrl,
@@ -142,14 +143,36 @@ export function TelerikHtml5Viewer({ executionId, reportSource, serviceUrl }: Te
               report: reportSource,
               parameters: {},
             },
-            viewMode: 'INTERACTIVE',
+            viewMode: 'PRINT_PREVIEW',
+            pageMode: 'SINGLE_PAGE',
             scaleMode: 'FIT_PAGE_WIDTH',
             enableAccessibility: true,
+            error: (_event: unknown, args: unknown) => {
+              if (!mounted) return
+              const message = typeof args === 'string'
+                ? args
+                : (args as { message?: string; error?: string })?.message
+                  ?? (args as { message?: string; error?: string })?.error
+                  ?? 'Telerik report viewer failed to render the preview.'
+              setError(message)
+              setLoading(false)
+            },
+            pageReady: () => {
+              if (!mounted) return
+              setLoading(false)
+            },
+            renderingEnd: () => {
+              if (!mounted) return
+              setLoading(false)
+            },
           })
+
+          const viewer = $(selector).data('telerik_ReportViewer')
+          viewer?.viewMode?.('PRINT_PREVIEW')
+          viewer?.pageMode?.('SINGLE_PAGE')
+          viewer?.scale?.({ scaleMode: 'FIT_PAGE_WIDTH' })
           initializedRef.current = true
         }
-
-        setLoading(false)
       } catch (e) {
         if (!mounted) return
         setError((e as Error).message)

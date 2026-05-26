@@ -179,23 +179,6 @@ type QueryExecutionError = {
 
 const API_BASE = process.env.NEXT_PUBLIC_REPORT_API_URL ?? 'http://localhost:5224'
 
-export type RenderReportRequest = {
-  format: 'PDF' | 'XLSX' | 'CSV'
-  reportTitle?: string
-  query: VisualQueryRequest
-  exportFullData?: boolean
-}
-
-export async function renderReport(request: RenderReportRequest): Promise<Response> {
-  return fetch(`${API_BASE}/api/report-exports/render`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(request),
-  })
-}
-
 export async function renderReportExecution(executionId: string, format: string): Promise<Response> {
   return fetch(`${API_BASE}/api/report-executions/${encodeURIComponent(executionId)}/export/${format.toLowerCase()}`, {
     method: 'GET',

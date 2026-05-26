@@ -4,7 +4,7 @@
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { ArrowLeft, FileSpreadsheet, FileText, Table2 } from 'lucide-react'
+import { ArrowLeft, FileSpreadsheet, FileText, FileType, Table2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,6 +14,7 @@ import {
   getReportPreviewReference,
   downloadReportExecution,
   triggerBlobDownload,
+  type ExportFormat,
   type ReportPreviewReference,
 } from '@/lib/report-executions-api'
 
@@ -37,7 +38,7 @@ export default function ReportPreviewPage() {
     void load()
   }, [executionId])
 
-  const download = async (format: 'PDF' | 'XLSX' | 'CSV') => {
+  const download = async (format: ExportFormat) => {
     const { blob, filename } = await downloadReportExecution(executionId, format)
     triggerBlobDownload(blob, filename)
   }
@@ -48,10 +49,14 @@ export default function ReportPreviewPage() {
         <Button asChild variant="outline">
           <Link href="/report-runs"><ArrowLeft className="h-4 w-4 mr-2" />Back to My Reports</Link>
         </Button>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button variant="outline" onClick={() => void download('PDF')}><FileText className="h-4 w-4 mr-1" />PDF</Button>
           <Button variant="outline" onClick={() => void download('XLSX')}><Table2 className="h-4 w-4 mr-1" />XLSX</Button>
           <Button variant="outline" onClick={() => void download('CSV')}><FileSpreadsheet className="h-4 w-4 mr-1" />CSV</Button>
+          <Button variant="outline" onClick={() => void download('DOCX')}><FileType className="h-4 w-4 mr-1" />DOCX</Button>
+          <Button variant="outline" onClick={() => void download('PPTX')}><FileType className="h-4 w-4 mr-1" />PPTX</Button>
+          <Button variant="outline" onClick={() => void download('RTF')}><FileType className="h-4 w-4 mr-1" />RTF</Button>
+          <Button variant="outline" onClick={() => void download('TIFF')}><FileType className="h-4 w-4 mr-1" />TIFF</Button>
         </div>
       </div>
 

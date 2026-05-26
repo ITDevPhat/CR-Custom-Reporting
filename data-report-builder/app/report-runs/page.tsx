@@ -35,6 +35,7 @@ import {
   Cloud,
   Info,
   AlertOctagon,
+  ChevronDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -73,6 +74,12 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   getReportExecutions,
   getReportExecution,
   downloadReportExecution,
@@ -85,6 +92,20 @@ import {
   type ExportFormat,
 } from '@/lib/report-executions-api'
 import { cn } from '@/lib/utils'
+
+const DOWNLOAD_FORMATS: Array<{
+  format: ExportFormat
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+}> = [
+  { format: 'PDF', label: 'PDF document', icon: FileText },
+  { format: 'XLSX', label: 'Excel worksheet', icon: Table2 },
+  { format: 'CSV', label: 'CSV data', icon: FileSpreadsheet },
+  { format: 'DOCX', label: 'Word document', icon: FileType },
+  { format: 'PPTX', label: 'PowerPoint deck', icon: FileType },
+  { format: 'RTF', label: 'Rich text', icon: FileType },
+  { format: 'TIFF', label: 'TIFF image', icon: FileType },
+]
 
 // --- Utility functions ---
 
@@ -310,6 +331,87 @@ function DownloadButton({
   )
 }
 
+function DownloadMenu({
+  execution,
+  isMockMode,
+}: {
+  execution: ReportExecution
+  isMockMode: boolean
+}) {
+  const [loadingFormat, setLoadingFormat] = useState<ExportFormat | null>(null)
+  const enabled = canDownload(execution)
+
+  const handleDownload = async (format: ExportFormat) => {
+    if (!enabled || loadingFormat) return
+
+    try {
+      setLoadingFormat(format)
+      toast.info(`Preparing ${format} download...`)
+
+      const { blob, filename } = await downloadReportExecution(
+        execution.executionId,
+        format,
+        isMockMode
+      )
+
+      triggerBlobDownload(blob, filename)
+      toast.success('Download started')
+    } catch {
+      toast.error('Download failed. Please try again.')
+    } finally {
+      setLoadingFormat(null)
+    }
+  }
+
+  const buttonLabel = loadingFormat ? loadingFormat : 'Download'
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <DropdownMenu>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!enabled || Boolean(loadingFormat)}
+                className="h-8 min-w-[118px] justify-between px-2.5 text-xs"
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  {loadingFormat ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  {buttonLabel}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {DOWNLOAD_FORMATS.map(({ format, label, icon: Icon }) => (
+              <DropdownMenuItem
+                key={format}
+                disabled={!enabled || Boolean(loadingFormat)}
+                onClick={() => void handleDownload(format)}
+                className="gap-2"
+              >
+                <Icon className="h-4 w-4" />
+                <span className="flex-1">{label}</span>
+                <span className="text-xs text-muted-foreground">{format}</span>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <TooltipContent>
+          <p>{enabled ? 'Download report' : getDownloadDisabledReason(execution)}</p>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 // --- Execution Detail Sheet ---
 
 function ExecutionDetailSheet({
@@ -524,6 +626,27 @@ function ExecutionDetailSheet({
                         label="DOCX"
                         isMockMode={isMockMode}
                       />
+                      <DownloadButton
+                        execution={detail}
+                        format="PPTX"
+                        icon={FileType}
+                        label="PPTX"
+                        isMockMode={isMockMode}
+                      />
+                      <DownloadButton
+                        execution={detail}
+                        format="RTF"
+                        icon={FileType}
+                        label="RTF"
+                        isMockMode={isMockMode}
+                      />
+                      <DownloadButton
+                        execution={detail}
+                        format="TIFF"
+                        icon={FileType}
+                        label="TIFF"
+                        isMockMode={isMockMode}
+                      />
                     </div>
                   </div>
                 </>
@@ -665,7 +788,7 @@ export default function ReportRunsPage() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="border-b bg-card">
-        <div className="container max-w-7xl mx-auto py-6 px-4">
+        <div className="mx-auto w-full max-w-[1500px] py-6 px-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">My Reports</h1>
@@ -694,7 +817,7 @@ export default function ReportRunsPage() {
         </div>
       </div>
 
-      <div className="container max-w-7xl mx-auto py-6 px-4 space-y-6">
+      <div className="mx-auto w-full max-w-[1500px] py-6 px-6 space-y-6">
         {/* Mock Mode Banner */}
         {isMockMode && <MockModeBanner />}
 
@@ -801,19 +924,19 @@ export default function ReportRunsPage() {
 
             {/* Table */}
             {!isLoading && sortedExecutions.length > 0 && (
-              <div className="rounded-md border">
-                <Table>
+              <div className="overflow-x-auto rounded-md border">
+                <Table className="min-w-[1220px]">
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[120px]">Execution ID</TableHead>
-                      <TableHead>Report Name</TableHead>
+                      <TableHead className="w-[140px]">Execution ID</TableHead>
+                      <TableHead className="min-w-[220px]">Report Name</TableHead>
                       <TableHead className="w-[100px]">Status</TableHead>
                       <TableHead className="w-[80px] text-right">Rows</TableHead>
                       <TableHead className="w-[140px]">Created</TableHead>
                       <TableHead className="w-[80px] text-right">Duration</TableHead>
                       <TableHead className="w-[80px]">Artifact</TableHead>
                       <TableHead className="w-[70px]">Storage</TableHead>
-                      <TableHead className="w-[220px] text-right">Actions</TableHead>
+                      <TableHead className="w-[260px] text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -878,7 +1001,7 @@ export default function ReportRunsPage() {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex items-center justify-end gap-1">
+                          <div className="flex items-center justify-end gap-2">
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -900,27 +1023,7 @@ export default function ReportRunsPage() {
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
-                            <DownloadButton
-                              execution={execution}
-                              format="PDF"
-                              icon={FileText}
-                              label="PDF"
-                              isMockMode={isMockMode}
-                            />
-                            <DownloadButton
-                              execution={execution}
-                              format="XLSX"
-                              icon={Table2}
-                              label="XLSX"
-                              isMockMode={isMockMode}
-                            />
-                            <DownloadButton
-                              execution={execution}
-                              format="CSV"
-                              icon={FileSpreadsheet}
-                              label="CSV"
-                              isMockMode={isMockMode}
-                            />
+                            <DownloadMenu execution={execution} isMockMode={isMockMode} />
                             <TooltipProvider>
                               <Tooltip>
                                 <TooltipTrigger asChild>
