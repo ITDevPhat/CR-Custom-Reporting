@@ -27,6 +27,7 @@ using Report.QueryEngine.Artifacts;
 using Report.Infrastructure.Artifacts;
 using Report.Infrastructure.Persistence;
 using Report.Contracts.Artifacts;
+using Telerik.Reporting.Services;
 
 
 
@@ -181,6 +182,8 @@ builder.Services.AddScoped<QueryExecutionValidator>();
 builder.Services.AddScoped<DatasetMetadataService>();
 builder.Services.AddScoped<ExpressionValidationService>();
 builder.Services.AddScoped<ITelerikReportFactory, DynamicTelerikReportFactory>();
+builder.Services.AddScoped<ITelerikSnapshotReportFactory, DynamicTelerikSnapshotReportFactory>();
+builder.Services.AddScoped<IReportSourceResolver, SnapshotReportSourceResolver>();
 builder.Services.AddScoped<IReportConnectionStringResolver, ReportConnectionStringResolver>();
 builder.Services.AddScoped<IReportRenderService, TelerikReportRenderService>();
 
