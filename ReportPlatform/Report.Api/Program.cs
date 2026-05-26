@@ -184,7 +184,7 @@ builder.Services.AddScoped<DatasetMetadataService>();
 builder.Services.AddScoped<ExpressionValidationService>();
 builder.Services.AddScoped<ITelerikReportFactory, DynamicTelerikReportFactory>();
 builder.Services.AddScoped<ITelerikSnapshotReportFactory, DynamicTelerikSnapshotReportFactory>();
-builder.Services.AddSingleton<IReportSourceResolver, SnapshotReportSourceResolver>();
+builder.Services.AddScoped<IReportSourceResolver, SnapshotReportSourceResolver>();
 builder.Services.AddScoped<IReportConnectionStringResolver, ReportConnectionStringResolver>();
 builder.Services.AddScoped<IReportRenderService, TelerikReportRenderService>();
 builder.Services.TryAddSingleton<IReportServiceConfiguration>(sp =>

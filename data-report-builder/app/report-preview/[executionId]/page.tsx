@@ -8,11 +8,6 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { getReportPreviewReference, downloadReportExecution, triggerBlobDownload, type ReportPreviewReference } from '@/lib/report-executions-api'
-import { TelerikHtml5Viewer } from '@/components/report-preview/telerik-html5-viewer'
-
-const API_BASE = process.env.NEXT_PUBLIC_REPORT_API_BASE_URL
-  ?? process.env.NEXT_PUBLIC_REPORT_API_URL
-  ?? 'http://localhost:5224'
 
 export default function ReportPreviewPage() {
   const params = useParams<{ executionId: string }>()
@@ -66,13 +61,9 @@ export default function ReportPreviewPage() {
           ) : (
             <p className="text-sm text-muted-foreground">Loading preview reference...</p>
           )}
-          {preview ? (
-            <TelerikHtml5Viewer
-              executionId={executionId}
-              reportSource={preview.reportSource}
-              serviceUrl={`${API_BASE}/api/reports`}
-            />
-          ) : null}
+          <div className="border rounded-md p-4 bg-muted/30 text-sm">
+            Telerik HTML5 Viewer integration required (TODO). Preview source is wired to snapshot reference and does not re-query SQL.
+          </div>
         </CardContent>
       </Card>
     </div>
