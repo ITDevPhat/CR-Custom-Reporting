@@ -27,6 +27,8 @@ using Report.QueryEngine.Artifacts;
 using Report.Infrastructure.Artifacts;
 using Report.Infrastructure.Persistence;
 using Report.Contracts.Artifacts;
+using Telerik.Reporting.Services;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 
 
@@ -181,8 +183,23 @@ builder.Services.AddScoped<QueryExecutionValidator>();
 builder.Services.AddScoped<DatasetMetadataService>();
 builder.Services.AddScoped<ExpressionValidationService>();
 builder.Services.AddScoped<ITelerikReportFactory, DynamicTelerikReportFactory>();
+builder.Services.AddScoped<ITelerikSnapshotReportFactory, DynamicTelerikSnapshotReportFactory>();
+builder.Services.AddSingleton<IReportSourceResolver, SnapshotReportSourceResolver>();
 builder.Services.AddScoped<IReportConnectionStringResolver, ReportConnectionStringResolver>();
 builder.Services.AddScoped<IReportRenderService, TelerikReportRenderService>();
+builder.Services.TryAddSingleton<IReportServiceConfiguration>(sp =>
+{
+    var env = sp.GetRequiredService<IWebHostEnvironment>();
+    var reportsStoragePath = Path.Combine(env.ContentRootPath, "ReportViewerStorage");
+    Directory.CreateDirectory(reportsStoragePath);
+
+    return new ReportServiceConfiguration
+    {
+        HostAppId = "ReportPlatform",
+        Storage = new Telerik.Reporting.Cache.File.FileStorage(reportsStoragePath),
+        ReportSourceResolver = sp.GetRequiredService<IReportSourceResolver>()
+    };
+});
 
 
 var app = builder.Build();
