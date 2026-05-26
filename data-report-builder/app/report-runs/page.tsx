@@ -156,6 +156,9 @@ function getStorageIcon(mode: StorageMode) {
 function canDownload(execution: ReportExecution): boolean {
   return execution.status === 'Completed' && execution.artifactAvailable === true
 }
+function canPreview(execution: ReportExecution): boolean {
+  return execution.status === 'Completed' && execution.artifactAvailable === true
+}
 
 function getDownloadDisabledReason(execution: ReportExecution): string {
   if (execution.status === 'Processing') {
@@ -169,6 +172,12 @@ function getDownloadDisabledReason(execution: ReportExecution): string {
   }
   if (execution.status === 'ArtifactMissing') {
     return 'Artifact is missing'
+  }
+  if (execution.status === 'ArtifactCorrupted') {
+    return 'Artifact is corrupted'
+  }
+  if (execution.status === 'ArtifactVersionMismatch') {
+    return 'Artifact version is incompatible'
   }
   if (execution.status === 'Expired') {
     return 'Artifact has expired'
@@ -870,6 +879,27 @@ export default function ReportRunsPage() {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-1">
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    asChild
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2 text-xs"
+                                    disabled={!canPreview(execution)}
+                                  >
+                                    <Link href={`/report-preview/${encodeURIComponent(execution.executionId)}`}>
+                                      <Eye className="h-3 w-3" />
+                                      <span className="ml-1 hidden sm:inline">Preview</span>
+                                    </Link>
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{canPreview(execution) ? 'Preview Report' : getDownloadDisabledReason(execution)}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                             <DownloadButton
                               execution={execution}
                               format="PDF"
@@ -900,7 +930,7 @@ export default function ReportRunsPage() {
                                     className="h-7 px-2"
                                     onClick={() => handleViewDetails(execution.executionId)}
                                   >
-                                    <Eye className="h-3 w-3" />
+                                    <Info className="h-3 w-3" />
                                   </Button>
                                 </TooltipTrigger>
                                 <TooltipContent>
