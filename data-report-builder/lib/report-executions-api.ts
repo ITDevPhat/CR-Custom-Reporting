@@ -13,6 +13,8 @@ export type ReportExecutionStatus =
   | 'Completed'
   | 'Failed'
   | 'ArtifactMissing'
+  | 'ArtifactCorrupted'
+  | 'ArtifactVersionMismatch'
   | 'Expired'
 
 export type StorageMode = 'Local' | 'S3' | 'InMemory'
@@ -144,6 +146,13 @@ export async function getReportExecution(
 }
 
 export type ExportFormat = 'PDF' | 'XLSX' | 'CSV' | 'DOCX'
+export type ReportPreviewReference = {
+  executionId: string
+  reportSource: string
+  viewerUrl: string
+  status: string
+  artifactAvailable: boolean
+}
 
 /**
  * Downloads a report execution in the specified format.
@@ -186,6 +195,18 @@ export async function downloadReportExecution(
     : `report-${executionId}.${format.toLowerCase()}`
 
   return { blob, filename }
+}
+
+export async function getReportPreviewReference(executionId: string): Promise<ReportPreviewReference> {
+  const res = await fetch(`${API_BASE}/api/report-executions/${executionId}/preview-reference`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || `Preview reference failed: ${res.status}`)
+  }
+  return res.json()
 }
 
 /**
