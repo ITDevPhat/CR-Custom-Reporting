@@ -62,9 +62,6 @@ public sealed class DynamicTelerikSnapshotReportFactory : ITelerikSnapshotReport
         report.Items.Add(BuildDetailSection(
             normalizedTable,
             layout));
-        report.Items.Add(BuildColumnHeaderSection(
-            normalizedTable,
-            layout));
 
         report.Items.Add(BuildPageFooter());
 
@@ -171,7 +168,7 @@ public sealed class DynamicTelerikSnapshotReportFactory : ITelerikSnapshotReport
     {
         var section = new DetailSection
         {
-            Height = Unit.Cm(layout.RowHeightCm),
+            Height = Unit.Cm(layout.RowHeightCm + layout.HeaderHeightCm),
             CanGrow = true,
             CanShrink = true,
             KeepTogether = false
@@ -188,7 +185,32 @@ public sealed class DynamicTelerikSnapshotReportFactory : ITelerikSnapshotReport
             return section;
         }
 
+        section.Items.Add(new TextBox
+        {
+            Value = "DEBUG_TEXT_VISIBLE",
+            Location = new PointU(Unit.Cm(0), Unit.Cm(0)),
+            Size = new SizeU(Unit.Cm(6), Unit.Cm(0.7)),
+            Style =
+            {
+                BackgroundColor = System.Drawing.Color.Yellow,
+                Font =
+                {
+                    Bold = true,
+                    Size = Unit.Point(14)
+                }
+            }
+        });
+
         var columnWidthCm = layout.PrintableWidthCm / table.Columns.Count;
+
+        section.Items.Add(new TextBox
+        {
+            Value = $"= First(Fields.{table.Columns[0].ColumnName})",
+            Location = new PointU(Unit.Cm(6.2), Unit.Cm(0)),
+            Size = new SizeU(Unit.Cm(Math.Min(10, layout.PrintableWidthCm - 6.2)), Unit.Cm(0.7)),
+            CanGrow = true,
+            CanShrink = true
+        });
 
         for (var i = 0; i < table.Columns.Count; i++)
         {
@@ -199,7 +221,7 @@ public sealed class DynamicTelerikSnapshotReportFactory : ITelerikSnapshotReport
                 Value = $"= Fields.{column.ColumnName}",
                 Location = new PointU(
                     Unit.Cm(i * columnWidthCm),
-                    Unit.Cm(0)),
+                    Unit.Cm(layout.HeaderHeightCm)),
                 Size = new SizeU(
                     Unit.Cm(columnWidthCm),
                     Unit.Cm(layout.RowHeightCm)),
