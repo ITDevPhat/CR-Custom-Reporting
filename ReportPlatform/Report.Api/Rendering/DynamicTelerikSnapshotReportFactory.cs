@@ -68,6 +68,48 @@ public sealed class DynamicTelerikSnapshotReportFactory : ITelerikSnapshotReport
         return report;
     }
 
+    private static GroupHeaderSection BuildColumnHeaderSection(
+        DataTable table,
+        TableLayout layout)
+    {
+        var section = new GroupHeaderSection
+        {
+            Height = Unit.Cm(layout.HeaderHeightCm),
+            PrintOnEveryPage = true
+        };
+
+        var columnWidthCm = layout.PrintableWidthCm / table.Columns.Count;
+        for (var i = 0; i < table.Columns.Count; i++)
+        {
+            var column = table.Columns[i];
+            section.Items.Add(new TextBox
+            {
+                Value = column.ColumnName,
+                Location = new PointU(Unit.Cm(i * columnWidthCm), Unit.Cm(0)),
+                Size = new SizeU(Unit.Cm(columnWidthCm), Unit.Cm(layout.HeaderHeightCm)),
+                CanGrow = false,
+                Style =
+                {
+                    BackgroundColor = System.Drawing.Color.Gainsboro,
+                    Font =
+                    {
+                        Bold = true,
+                        Size = Unit.Point(layout.HeaderFontPt)
+                    },
+                    BorderStyle = { Default = BorderType.Solid },
+                    VerticalAlign = VerticalAlign.Middle,
+                    Padding =
+                    {
+                        Left = Unit.Point(2),
+                        Right = Unit.Point(2)
+                    }
+                }
+            });
+        }
+
+        return section;
+    }
+
     private static PageHeaderSection BuildPageHeader(
         DataTable table,
         string? title,

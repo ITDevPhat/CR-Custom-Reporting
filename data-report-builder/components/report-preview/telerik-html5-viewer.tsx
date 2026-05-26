@@ -39,21 +39,12 @@ const STYLE_CANDIDATES = {
 const SCRIPT_CANDIDATES = {
   jquery: [
     `${ASSET_BASE}/js/jquery.min.js`,
-    `${ASSET_BASE}/js/jquery-3.7.1.min.js`,
-    `${ASSET_BASE}/js/jquery-3.6.0.min.js`,
-    // Fallback for local development if the Telerik assets bundle was copied without jQuery.
-    // Prefer placing jquery.min.js under public/telerik-report-viewer/js for offline development.
-    'https://code.jquery.com/jquery-3.7.1.min.js',
   ],
   kendo: [
     `${ASSET_BASE}/js/telerikReportViewer.kendo-20.1.26.520.min.js`,
-    `${ASSET_BASE}/js/telerikReportViewer.kendo-20.1.26.520.js`,
-    `${ASSET_BASE}/js/kendo.all.min.js`,
   ],
   viewer: [
     `${ASSET_BASE}/js/telerikReportViewer-20.1.26.520.min.js`,
-    `${ASSET_BASE}/js/telerikReportViewer-20.1.26.520.js`,
-    `${ASSET_BASE}/js/telerikReportViewer.min.js`,
   ],
 }
 
@@ -195,7 +186,7 @@ export function TelerikHtml5Viewer({ executionId, reportSource, serviceUrl }: Te
 
       <div
         id={elementId}
-        className="min-h-[78vh] w-full rounded-md border bg-white"
+        className="h-[78vh] w-full rounded-md border bg-white"
         aria-label={`Telerik report viewer for ${executionId}`}
       />
     </div>
