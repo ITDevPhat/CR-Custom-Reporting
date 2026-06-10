@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="Report.Api/Report.Api.csproj" />
+  <Project Path="Report.Contracts/Report.Contracts.csproj" />
+  <Project Path="Report.Infrastructure/Report.Infrastructure.csproj" />
+  <Project Path="Report.Metadata/Report.Metadata.csproj" />
+  <Project Path="Report.QueryEngine/Report.QueryEngine.csproj" />
+</Solution>
