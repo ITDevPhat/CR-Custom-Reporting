@@ -27,6 +27,7 @@ using Report.QueryEngine.Validation.Logging;
 using Report.QueryEngine.Artifacts;
 using Report.Infrastructure.Artifacts;
 using Report.Infrastructure.Persistence;
+using Report.Infrastructure.Persistence.Sql;
 using Report.Contracts.Artifacts;
 using Telerik.Reporting.Services;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -79,10 +80,25 @@ builder.Services.AddCors(options =>
     });
 });
 
-builder.Services.AddSingleton<IConnectionRegistry, InMemoryConnectionRegistry>();
-builder.Services.AddSingleton<IDatasetRegistry, InMemoryDatasetRegistry>();
-builder.Services.AddSingleton<IReportRegistry, InMemoryReportRegistry>();
-builder.Services.AddSingleton<ISemanticModelStore, InMemorySemanticModelStore>();
+var rptCatalogConnectionString = builder.Configuration["RptCatalog:ConnectionString"];
+if (!string.IsNullOrWhiteSpace(rptCatalogConnectionString))
+{
+    builder.Services.AddMemoryCache();
+    builder.Services.AddSingleton<IRptCatalogConnectionFactory>(_ =>
+        new SqlServerRptCatalogConnectionFactory(rptCatalogConnectionString));
+    builder.Services.AddSingleton<RptAuditService>();
+    builder.Services.AddSingleton<IConnectionRegistry, SqlRptConnectionRegistry>();
+    builder.Services.AddSingleton<IDatasetRegistry, SqlRptDatasetRegistry>();
+    builder.Services.AddSingleton<ISemanticModelStore, SqlRptSemanticModelStore>();
+    builder.Services.AddSingleton<IReportRegistry, SqlRptReportRegistry>();
+}
+else
+{
+    builder.Services.AddSingleton<IConnectionRegistry, InMemoryConnectionRegistry>();
+    builder.Services.AddSingleton<IDatasetRegistry, InMemoryDatasetRegistry>();
+    builder.Services.AddSingleton<ISemanticModelStore, InMemorySemanticModelStore>();
+    builder.Services.AddSingleton<IReportRegistry, InMemoryReportRegistry>();
+}
 
 builder.Services.AddScoped<ReportArtifactBuilder>();
 builder.Services.AddScoped<ReportArtifactLoader>();
